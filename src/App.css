@@ -122,6 +122,13 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
+  transition: all 0.3s ease;
+}
+
+.canvas-container.dragging {
+  background-color: rgba(59, 130, 246, 0.1);
+  outline: 2px dashed var(--accent);
+  outline-offset: -10px;
 }
 
 .canvas-wrapper {
@@ -301,7 +308,94 @@ body {
   margin: 4px 0;
 }
 
-/* Status Bar */
+/* Mark Tags on Canvas */
+.mark-tag {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  background-color: var(--accent);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+  pointer-events: none;
+  z-index: 100;
+  transform: translate(-50%, -50%);
+  border: 2px solid white;
+}
+
+/* Quick Edit Panel */
+.quick-edit-floating {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 30px;
+  padding: 8px 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  backdrop-filter: blur(10px);
+}
+
+.quick-edit-divider {
+  width: 1px;
+  height: 20px;
+  background-color: var(--border);
+}
+
+.quick-edit-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.quick-edit-btn:hover {
+  color: var(--text-primary);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.mark-list-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background-color: rgba(59, 130, 246, 0.05);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 8px;
+  margin-bottom: 6px;
+}
+
+.mark-number {
+  width: 18px;
+  height: 18px;
+  background-color: var(--accent);
+  color: white;
+  border-radius: 50%;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+}
+
 .status-bar {
   grid-column: 2 / 3;
   grid-row: 3 / 4;

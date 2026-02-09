@@ -42,8 +42,11 @@ const App = () => {
   const [layers, setLayers] = useState([]);
   const [selectedObject, setSelectedObject] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
+  const [marks, setMarks] = useState([]); // [{id, x, y, canvasX, canvasY}]
+  const [isDragging, setIsDragging] = useState(false);
   const canvasRef = useRef(null);
   const fabricCanvas = useRef(null);
+  const canvasContainerRef = useRef(null);
 
   useEffect(() => {
     initFabricStyling();
@@ -138,6 +141,21 @@ const App = () => {
 
     // Right Click
     canvas.on('mouse:down', (opt) => {
+      if (activeTool === 'mark' && !opt.target?.id?.startsWith('mark-')) {
+        const pointer = canvas.getPointer(opt.e);
+        const newMark = {
+          id: Date.now(),
+          x: pointer.x,
+          y: pointer.y,
+          canvasX: opt.e.clientX,
+          canvasY: opt.e.clientY
+        };
+        if (marks.length < 10) {
+          setMarks(prev => [...prev, newMark]);
+        }
+        return;
+      }
+
       if (opt.button === 3) {
         if (opt.target) {
           canvas.setActiveObject(opt.target);
@@ -184,9 +202,8 @@ const App = () => {
     fabricCanvas.current.setActiveObject(text);
   };
 
-  const handleFileUpload = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  const addImageToCanvas = (file) => {
+    if (!file || !file.type.startsWith('image/')) return;
     const reader = new FileReader();
     reader.onload = (f) => {
       fabric.Image.fromURL(f.target.result, (img) => {
@@ -198,6 +215,34 @@ const App = () => {
       });
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    addImageToCanvas(file);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      addImageToCanvas(files[0]);
+    }
   };
 
   // Property Handlers
@@ -228,6 +273,9 @@ const App = () => {
         </div>
         <button className={`tool-btn ${activeTool === 'select' ? 'active' : ''}`} onClick={() => setActiveTool('select')}>
           <MousePointer2 size={22} />
+        </button>
+        <button className={`tool-btn ${activeTool === 'mark' ? 'active' : ''}`} onClick={() => setActiveTool('mark')}>
+          <Target size={22} />
         </button>
         <button className="tool-btn" onClick={addRect}>
           <Square size={22} />
@@ -280,14 +328,81 @@ const App = () => {
       </header>
 
       {/* Main Canvas */}
-      <main className="canvas-container">
-        <div className="canvas-wrapper">
+      <main
+        className={`canvas-container ${isDragging ? 'dragging' : ''}`}
+        ref={canvasContainerRef}
+        onDragOver={handleDragOver}
+        onDragEnter={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
+        <div className="canvas-wrapper" style={{ position: 'relative' }}>
           <canvas ref={canvasRef} />
+
+          {/* Mark Tags */}
+          {marks.map((mark, index) => {
+            // Find object at this position if needed, or just show at click
+            return (
+              <div
+                key={mark.id}
+                className="mark-tag"
+                style={{
+                  left: fabricCanvas.current ? mark.x * fabricCanvas.current.getZoom() : mark.x,
+                  top: fabricCanvas.current ? mark.y * fabricCanvas.current.getZoom() : mark.y
+                }}
+              >
+                {index + 1}
+              </div>
+            );
+          })}
         </div>
+
+        {/* Quick Edit Floating Bar */}
+        {marks.length > 0 && (
+          <div className="quick-edit-floating">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div className="mark-number" style={{ width: '22px', height: '22px' }}>{marks.length}</div>
+              <span style={{ fontSize: '13px', fontWeight: '600' }}>Elements Marked</span>
+            </div>
+            <div className="quick-edit-divider"></div>
+            <button className="quick-edit-btn" onClick={() => alert('AI Segmenting...')}>
+              <Scissors size={14} /> Split Layer
+            </button>
+            <button className="quick-edit-btn" onClick={() => alert('AI OCR...')}>
+              <Type size={14} /> Edit Text
+            </button>
+            <button className="quick-edit-btn" onClick={() => setMarks([])}>
+              <Trash2 size={14} /> Clear
+            </button>
+          </div>
+        )}
       </main>
 
       {/* Properties & Layers */}
       <aside className="properties-panel">
+        <div className="property-group">
+          <h3 className="panel-title">Active Marks</h3>
+          {marks.length > 0 ? (
+            <div className="marks-list">
+              {marks.map((mark, index) => (
+                <div key={mark.id} className="mark-list-item">
+                  <div className="mark-number">{index + 1}</div>
+                  <span style={{ fontSize: '12px' }}>Element at {Math.round(mark.x)}, {Math.round(mark.y)}</span>
+                  <button
+                    className="layer-btn"
+                    style={{ marginLeft: 'auto' }}
+                    onClick={() => setMarks(marks.filter(m => m.id !== mark.id))}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Use Mark Mode (M) to select items</p>
+          )}
+        </div>
+
         <div className="property-group">
           <h3 className="panel-title">Selection</h3>
           {selectedObject ? (
