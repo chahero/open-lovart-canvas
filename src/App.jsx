@@ -4,11 +4,8 @@ import {
   MousePointer2,
   Square,
   Type,
-  Eraser,
   Image as ImageIcon,
-  Scissors,
   Maximize,
-  Minus,
   Layers as LayersIcon,
   Settings,
   Download,
@@ -16,33 +13,41 @@ import {
   Eye,
   EyeOff,
   MoreHorizontal,
-  CloudUpload,
   Sparkles,
-  Zap,
+  Scissors,
   Target,
   Edit3,
-  Copy,
-  Clipboard,
   ChevronUp,
   ChevronDown,
-  Layout,
-  Lock,
-  Unlock,
-  Move
+  RotateCcw,
+  RotateCw,
+  Minus
 } from 'lucide-react';
-import { fabric } from 'fabric';
+import * as fabric from 'fabric';
 import './App.css';
+
+// Custom control styling for Fabric.js
+const initFabricStyling = () => {
+  fabric.Object.prototype.transparentCorners = false;
+  fabric.Object.prototype.cornerColor = '#3b82f6';
+  fabric.Object.prototype.cornerStyle = 'circle';
+  fabric.Object.prototype.cornerSize = 10;
+  fabric.Object.prototype.borderColor = '#3b82f6';
+  fabric.Object.prototype.borderScaleFactor = 2;
+  fabric.Object.prototype.padding = 4;
+};
 
 const App = () => {
   const [activeTool, setActiveTool] = useState('select');
   const [layers, setLayers] = useState([]);
+  const [selectedObject, setSelectedObject] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
-  const [selectedObjectId, setSelectedObjectId] = useState(null);
   const canvasRef = useRef(null);
   const fabricCanvas = useRef(null);
 
   useEffect(() => {
-    // Initialize Fabric Canvas
+    initFabricStyling();
+
     const canvas = new fabric.Canvas(canvasRef.current, {
       backgroundColor: '#ffffff',
       width: 900,
@@ -52,45 +57,91 @@ const App = () => {
 
     fabricCanvas.current = canvas;
 
-    // Handle object additions/updates
-    const updateLayers = () => {
+    const updateUIState = () => {
+      // Update Layers
       const currentObjects = canvas.getObjects().map((obj, index) => ({
         id: obj.id || (obj.id = Math.random().toString(36).substr(2, 9)),
-        name: obj.name || obj.type,
+        name: obj.name || `${obj.type} ${index + 1}`,
         visible: obj.visible,
         active: obj === canvas.getActiveObject(),
         object: obj,
         type: obj.type
       })).reverse();
       setLayers(currentObjects);
+
+      // Update Selected Object
+      const activeObj = canvas.getActiveObject();
+      setSelectedObject(activeObj ? {
+        type: activeObj.type,
+        fill: activeObj.fill,
+        opacity: activeObj.opacity,
+        left: Math.round(activeObj.left),
+        top: Math.round(activeObj.top),
+        scaleX: activeObj.scaleX,
+        scaleY: activeObj.scaleY,
+        angle: activeObj.angle,
+        id: activeObj.id
+      } : null);
     };
 
-    canvas.on('object:added', updateLayers);
-    canvas.on('object:removed', updateLayers);
-    canvas.on('selection:created', (e) => {
-      updateLayers();
-      setSelectedObjectId(e.target.id);
-    });
-    canvas.on('selection:updated', (e) => {
-      updateLayers();
-      setSelectedObjectId(e.target.id);
-    });
-    canvas.on('selection:cleared', () => {
-      updateLayers();
-      setSelectedObjectId(null);
-      setContextMenu(null);
-    });
+    canvas.on('object:added', updateUIState);
+    canvas.on('object:removed', updateUIState);
+    canvas.on('object:modified', updateUIState);
+    canvas.on('selection:created', updateUIState);
+    canvas.on('selection:updated', updateUIState);
+    canvas.on('selection:cleared', updateUIState);
 
-    // Custom Context Menu
-    canvas.on('mouse:down', (options) => {
-      if (options.button === 3) { // Right click
-        if (options.target) {
-          canvas.setActiveObject(options.target);
-          setContextMenu({
-            x: options.e.clientX,
-            y: options.e.clientY,
-            target: options.target
+    // Keyboard Shortcuts
+    const handleKeyDown = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+      const active = canvas.getActiveObject();
+      if (!active) return;
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        canvas.remove(active);
+        canvas.discardActiveObject().renderAll();
+      }
+      if (e.ctrlKey && e.key === 'c') {
+        active.clone((cloned) => {
+          canvas._clipboard = cloned;
+        });
+      }
+      if (e.ctrlKey && e.key === 'v') {
+        if (canvas._clipboard) {
+          canvas._clipboard.clone((clonedObj) => {
+            canvas.discardActiveObject();
+            clonedObj.set({
+              left: clonedObj.left + 10,
+              top: clonedObj.top + 10,
+              evented: true,
+            });
+            if (clonedObj.type === 'activeSelection') {
+              clonedObj.canvas = canvas;
+              clonedObj.forEachObject((obj) => {
+                canvas.add(obj);
+              });
+              clonedObj.setCoords();
+            } else {
+              canvas.add(clonedObj);
+            }
+            canvas._clipboard.top += 10;
+            canvas._clipboard.left += 10;
+            canvas.setActiveObject(clonedObj);
+            canvas.requestRenderAll();
           });
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    // Right Click
+    canvas.on('mouse:down', (opt) => {
+      if (opt.button === 3) {
+        if (opt.target) {
+          canvas.setActiveObject(opt.target);
+          setContextMenu({ x: opt.e.clientX, y: opt.e.clientY, target: opt.target });
         } else {
           setContextMenu(null);
         }
@@ -99,19 +150,13 @@ const App = () => {
       }
     });
 
-    // Window resize handle
-    const handleResize = () => {
-      // Implement if needed
-    };
-    window.addEventListener('resize', handleResize);
-
     return () => {
       canvas.dispose();
-      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('keydown', handleKeyDown);
     };
   }, []);
 
-  // Utility Actions
+  // Tool Actions
   const addRect = () => {
     const rect = new fabric.Rect({
       left: 100,
@@ -119,23 +164,21 @@ const App = () => {
       fill: 'rgba(59, 130, 246, 0.5)',
       width: 150,
       height: 150,
-      rx: 12,
-      ry: 12,
+      rx: 12, ry: 12,
       stroke: '#3b82f6',
-      strokeWidth: 2,
+      strokeWidth: 2
     });
     fabricCanvas.current.add(rect);
     fabricCanvas.current.setActiveObject(rect);
   };
 
   const addText = () => {
-    const text = new fabric.IText('Creative Design', {
-      left: 200,
-      top: 200,
-      fontFamily: 'Outfit, sans-serif',
-      fontSize: 42,
-      fontWeight: 'bold',
-      fill: '#000000'
+    const text = new fabric.IText('Double Click to Edit', {
+      left: 150,
+      top: 150,
+      fontFamily: 'Inter',
+      fontSize: 24,
+      fill: '#18181b'
     });
     fabricCanvas.current.add(text);
     fabricCanvas.current.setActiveObject(text);
@@ -147,7 +190,7 @@ const App = () => {
     const reader = new FileReader();
     reader.onload = (f) => {
       fabric.Image.fromURL(f.target.result, (img) => {
-        img.scaleToWidth(500);
+        img.scaleToWidth(400);
         img.name = file.name;
         fabricCanvas.current.add(img);
         fabricCanvas.current.centerObject(img);
@@ -157,54 +200,42 @@ const App = () => {
     reader.readAsDataURL(file);
   };
 
-  // Stack Actions
+  // Property Handlers
+  const setProperty = (prop, value) => {
+    const active = fabricCanvas.current.getActiveObject();
+    if (!active) return;
+    active.set(prop, value);
+    fabricCanvas.current.renderAll();
+    setSelectedObject({ ...selectedObject, [prop]: value });
+  };
+
+  // Stack/Order Handlers
   const moveUp = () => {
     const active = fabricCanvas.current.getActiveObject();
-    if (active) {
-      fabricCanvas.current.bringForward(active);
-      fabricCanvas.current.fire('object:added'); // trigger layer update
-    }
+    if (active) fabricCanvas.current.bringForward(active);
   };
-
   const moveDown = () => {
     const active = fabricCanvas.current.getActiveObject();
-    if (active) {
-      fabricCanvas.current.sendBackwards(active);
-      fabricCanvas.current.fire('object:removed'); // trigger layer update (re-use event)
-    }
-  };
-
-  // AI Feature Mockups
-  const runAISegment = () => {
-    const active = fabricCanvas.current.getActiveObject();
-    if (!active || active.type !== 'image') {
-      alert('Please select an image to segment elements.');
-      return;
-    }
-    // Conceptual magic: In a real app, we'd call SAM API here.
-    alert('AI is analyzing image elements... (SAM Integration)');
+    if (active) fabricCanvas.current.sendBackwards(active);
   };
 
   return (
     <div className="app-container" onContextMenu={(e) => e.preventDefault()}>
-      {/* Left Sidebar */}
+      {/* Sidebar */}
       <aside className="sidebar">
-        <div className="sidebar-logo">
+        <div className="sidebar-logo" style={{ color: 'var(--accent)', marginBottom: '20px' }}>
           <Sparkles size={28} />
         </div>
         <button className={`tool-btn ${activeTool === 'select' ? 'active' : ''}`} onClick={() => setActiveTool('select')}>
           <MousePointer2 size={22} />
         </button>
-        <button className={`tool-btn ${activeTool === 'rect' ? 'active' : ''}`} onClick={() => setActiveTool('rect')}>
-          <Plus size={22} />
-        </button>
-        <button className={`tool-btn ${activeTool === 'shape' ? 'active' : ''}`} onClick={addRect}>
+        <button className="tool-btn" onClick={addRect}>
           <Square size={22} />
         </button>
-        <button className={`tool-btn ${activeTool === 'text' ? 'active' : ''}`} onClick={addText}>
+        <button className="tool-btn" onClick={addText}>
           <Type size={22} />
         </button>
-        <button className={`tool-btn ${activeTool === 'draw' ? 'active' : ''}`} onClick={() => setActiveTool('draw')}>
+        <button className="tool-btn">
           <Edit3 size={22} />
         </button>
         <div style={{ margin: 'auto' }} />
@@ -220,22 +251,20 @@ const App = () => {
       {/* Topbar */}
       <header className="topbar">
         <div className="topbar-left">
-          <h2 style={{ fontSize: '16px', fontWeight: '700', letterSpacing: '-0.2px', opacity: 0.9 }}>
-            LOVART <span style={{ color: 'var(--text-muted)', fontWeight: '400', marginLeft: '8px' }}>Project Alpha</span>
-          </h2>
+          <h2 style={{ fontSize: '18px', fontWeight: '800', letterSpacing: '-0.5px' }}>LOVART</h2>
         </div>
 
         <div className="topbar-actions">
-          <button className="action-btn" onClick={() => alert('Upscaling...')}>
+          <button className="action-btn" onClick={() => alert('Feature coming soon...')}>
             <Maximize size={15} /> Upscale
           </button>
-          <button className="action-btn" onClick={() => alert('Removing BG...')}>
+          <button className="action-btn" onClick={() => alert('Feature coming soon...')}>
             <Scissors size={15} /> Remove bg
           </button>
-          <button className="action-btn" onClick={runAISegment}>
+          <button className="action-btn" onClick={() => alert('Feature coming soon...')}>
             <Target size={15} /> Edit Elements
           </button>
-          <button className="action-btn new-badge" onClick={() => alert('OCR Editing...')}>
+          <button className="action-btn" onClick={() => alert('Feature coming soon...')}>
             <Type size={15} /> Edit Text
           </button>
           <button className="action-btn">
@@ -244,162 +273,142 @@ const App = () => {
         </div>
 
         <div className="topbar-right">
-          <button className="action-btn primary">
+          <button className="action-btn" style={{ background: 'var(--accent)', color: 'white' }}>
             <Download size={15} /> Export
           </button>
         </div>
       </header>
 
-      {/* Canvas */}
+      {/* Main Canvas */}
       <main className="canvas-container">
         <div className="canvas-wrapper">
           <canvas ref={canvasRef} />
-        </div>
-
-        {/* Floating Quick Edit (Mock) */}
-        <div style={{
-          position: 'absolute',
-          bottom: '24px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          background: 'var(--bg-secondary)',
-          border: '1px solid var(--border)',
-          borderRadius: '30px',
-          padding: '6px 20px',
-          display: 'flex',
-          gap: '12px',
-          alignItems: 'center',
-          boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
-          zIndex: 30,
-        }}>
-          <span style={{ fontSize: '13px', fontWeight: '500' }}>Quick Edit</span>
-          <div style={{ width: '1px', height: '16px', backgroundColor: 'var(--border)' }}></div>
-          <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
-            <Sparkles size={16} />
-          </button>
         </div>
       </main>
 
       {/* Properties & Layers */}
       <aside className="properties-panel">
-        <div className="panel-header">
-          <h3 className="panel-title">Layers</h3>
-          <LayersIcon size={16} color="var(--text-muted)" />
-        </div>
-
-        <div className="layers-list" style={{ flexGrow: 1, overflowY: 'auto' }}>
-          {layers.length === 0 && (
-            <div style={{ textAlign: 'center', marginTop: '40px', color: 'var(--text-muted)' }}>
-              <CloudUpload size={32} strokeWidth={1} style={{ marginBottom: '12px' }} />
-              <p style={{ fontSize: '12px' }}>Drop an image to start</p>
-            </div>
-          )}
-          {layers.map((layer) => (
-            <div
-              key={layer.id}
-              className={`layer-item ${layer.active ? 'active' : ''}`}
-              onClick={() => {
-                fabricCanvas.current.setActiveObject(layer.object);
-                fabricCanvas.current.renderAll();
-              }}
-            >
-              <div className="layer-preview">
-                {layer.type === 'text' || layer.type === 'i-text' ? <Type size={14} /> :
-                  layer.type === 'image' ? <ImageIcon size={14} /> : <Square size={14} />}
+        <div className="property-group">
+          <h3 className="panel-title">Selection</h3>
+          {selectedObject ? (
+            <>
+              <div className="property-row">
+                <span className="property-label">Fill</span>
+                <input
+                  type="color"
+                  className="color-input"
+                  value={typeof selectedObject.fill === 'string' ? selectedObject.fill : '#000000'}
+                  onChange={(e) => setProperty('fill', e.target.value)}
+                />
               </div>
-              <span className="layer-name">{layer.name}</span>
-              <div className="layer-actions">
-                <button className="layer-btn" onClick={(e) => {
-                  e.stopPropagation();
-                  layer.object.visible = !layer.object.visible;
-                  fabricCanvas.current.renderAll();
-                  setLayers([...layers]);
-                }}>
-                  {layer.object.visible ? <Eye size={14} /> : <EyeOff size={14} />}
-                </button>
-                <button className="layer-btn" onClick={(e) => {
-                  e.stopPropagation();
-                  fabricCanvas.current.remove(layer.object);
-                }}>
-                  <Trash2 size={14} />
-                </button>
+              <div className="property-row">
+                <span className="property-label">Opacity</span>
+                <input
+                  type="range"
+                  className="property-slider"
+                  min="0" max="1" step="0.01"
+                  value={selectedObject.opacity || 1}
+                  onChange={(e) => setProperty('opacity', parseFloat(e.target.value))}
+                />
+                <span style={{ fontSize: '11px', width: '30px' }}>{Math.round((selectedObject.opacity || 1) * 100)}%</span>
               </div>
-            </div>
-          ))}
-        </div>
-
-        <div className="panel-section" style={{ borderTop: '1px solid var(--border)', paddingTop: '20px', marginTop: '20px' }}>
-          <h3 className="panel-title" style={{ marginBottom: '16px' }}>Properties</h3>
-          {selectedObjectId ? (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <div className="panel-item">
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Position X</span>
-                <div style={{ background: 'var(--bg-tertiary)', padding: '6px', borderRadius: '6px', fontSize: '12px', marginTop: '4px' }}>
-                  {Math.round(fabricCanvas.current?.getActiveObject()?.left || 0)}
+              <div className="property-row" style={{ marginTop: '12px' }}>
+                <span className="property-label">Rotation</span>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button className="layer-btn" onClick={() => setProperty('angle', (fabricCanvas.current.getActiveObject().angle - 90) % 360)}>
+                    <RotateCcw size={16} />
+                  </button>
+                  <button className="layer-btn" onClick={() => setProperty('angle', (fabricCanvas.current.getActiveObject().angle + 90) % 360)}>
+                    <RotateCw size={16} />
+                  </button>
                 </div>
               </div>
-              <div className="panel-item">
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Position Y</span>
-                <div style={{ background: 'var(--bg-tertiary)', padding: '6px', borderRadius: '6px', fontSize: '12px', marginTop: '4px' }}>
-                  {Math.round(fabricCanvas.current?.getActiveObject()?.top || 0)}
-                </div>
-              </div>
-            </div>
+            </>
           ) : (
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Select an object to edit properties</p>
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Nothing selected</p>
           )}
+        </div>
+
+        <div className="property-group" style={{ flexGrow: 1 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 className="panel-title" style={{ marginBottom: 0 }}>Layers</h3>
+            <LayersIcon size={14} color="var(--text-muted)" />
+          </div>
+          <div className="layers-list">
+            {layers.map((layer) => (
+              <div
+                key={layer.id}
+                className={`layer-item ${layer.active ? 'active' : ''}`}
+                onClick={() => {
+                  fabricCanvas.current.setActiveObject(layer.object);
+                  fabricCanvas.current.renderAll();
+                }}
+              >
+                <div className="layer-preview">
+                  {layer.type === 'text' || layer.type === 'i-text' ? <Type size={14} /> :
+                    layer.type === 'image' ? <ImageIcon size={14} /> : <Square size={14} />}
+                </div>
+                <span className="layer-name">{layer.name}</span>
+                <div className="layer-actions">
+                  <button className="layer-btn" onClick={(e) => {
+                    e.stopPropagation();
+                    layer.object.visible = !layer.object.visible;
+                    fabricCanvas.current.renderAll();
+                    setLayers([...layers]);
+                  }}>
+                    {layer.object.visible ? <Eye size={14} /> : <EyeOff size={14} />}
+                  </button>
+                  <button className="layer-btn" onClick={(e) => {
+                    e.stopPropagation();
+                    fabricCanvas.current.remove(layer.object);
+                  }}>
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </aside>
 
-      {/* Context Menu Rendering */}
+      {/* Context Menu */}
       {contextMenu && (
-        <div
-          className="context-menu"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
-          onClick={() => setContextMenu(null)}
-        >
-          <div className="menu-item" onClick={Copy}>
+        <div className="context-menu" style={{ top: contextMenu.y, left: contextMenu.x }}>
+          <div className="menu-item" onClick={() => {
+            contextMenu.target.clone(c => fabricCanvas.current._clipboard = c);
+            setContextMenu(null);
+          }}>
             <span>Copy</span>
-            <span className="shortcut">⌘ C</span>
-          </div>
-          <div className="menu-item">
-            <span>Paste</span>
-            <span className="shortcut">⌘ V</span>
+            <span className="menu-shortcut">Ctrl+C</span>
           </div>
           <div className="menu-divider"></div>
           <div className="menu-item" onClick={moveUp}>
-            <span>Move up</span>
-            <span className="shortcut">⌘ ]</span>
+            <span>Bring Forward</span>
+            <span className="menu-shortcut">Ctrl+Up</span>
           </div>
           <div className="menu-item" onClick={moveDown}>
-            <span>Move down</span>
-            <span className="shortcut">⌘ [</span>
-          </div>
-          <div className="menu-item" onClick={() => fabricCanvas.current.bringToFront(contextMenu.target)}>
-            <span>Bring to front</span>
-            <span className="shortcut">]</span>
-          </div>
-          <div className="menu-item" onClick={() => fabricCanvas.current.sendToBack(contextMenu.target)}>
-            <span>Send to back</span>
-            <span className="shortcut">[</span>
+            <span>Send Backward</span>
+            <span className="menu-shortcut">Ctrl+Down</span>
           </div>
           <div className="menu-divider"></div>
-          <div className="menu-item" style={{ color: '#ef4444' }} onClick={() => fabricCanvas.current.remove(contextMenu.target)}>
+          <div className="menu-item" style={{ color: '#ef4444' }} onClick={() => {
+            fabricCanvas.current.remove(contextMenu.target);
+            setContextMenu(null);
+          }}>
             <span>Delete</span>
-            <span className="shortcut">Del</span>
+            <span className="menu-shortcut">Del</span>
           </div>
         </div>
       )}
 
-      {/* Fixed Footer */}
+      {/* Footer */}
       <footer className="status-bar">
         <div style={{ display: 'flex', gap: '16px' }}>
           <span>900 x 650 PX</span>
-          <span>CUR: {Math.round(fabricCanvas.current?.getPointer()?.x || 0)}, {Math.round(fabricCanvas.current?.getPointer()?.y || 0)}</span>
+          <span>CUR: {selectedObject ? `${selectedObject.left}, ${selectedObject.top}` : '0, 0'}</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#22c55e' }}></div>
-          <span style={{ fontWeight: '600', color: '#22c55e' }}>ONLINE</span>
+        <div>
+          <span>LOVART Alpha v0.1</span>
         </div>
       </footer>
     </div>
