@@ -77,7 +77,7 @@ const App = () => {
         fontFamily: activeObj.fontFamily || 'Inter',
         fontWeight: activeObj.fontWeight || 'normal',
         fontStyle: activeObj.fontStyle || 'normal',
-        fontSize: activeObj.fontSize || 20,
+        fontSize: Math.round((activeObj.fontSize || 20) * (activeObj.scaleX || 1)),
         brightness: activeObj.filters?.find(f => f.type === 'Brightness')?.brightness || 0,
         contrast: activeObj.filters?.find(f => f.type === 'Contrast')?.contrast || 0,
         grayscale: activeObj.filters?.some(f => f.type === 'Grayscale') || false,
@@ -85,7 +85,7 @@ const App = () => {
     } else {
       setSelectedObject(null);
     }
-  }, [layers]); // Add layers as dependency if needed, or keep it as is
+  }, []);
 
   // --- History (Undo/Redo) Logic ---
   const saveHistory = useCallback(() => {
@@ -171,6 +171,7 @@ const App = () => {
     canvas.on('object:added', () => { if (!isSavingHistory.current) saveHistory(); syncUI(); });
     canvas.on('object:removed', () => { if (!isSavingHistory.current) saveHistory(); syncUI(); });
     canvas.on('object:modified', () => { if (!isSavingHistory.current) saveHistory(); syncUI(); });
+    canvas.on('object:scaling', syncUI);
     canvas.on('selection:created', syncUI);
     canvas.on('selection:updated', syncUI);
     canvas.on('selection:cleared', syncUI);
@@ -289,20 +290,28 @@ const App = () => {
   };
 
   const addRect = () => {
+    const canvas = fabricCanvas.current;
     const rect = new fabric.Rect({
-      left: 100, top: 100, width: 150, height: 150, rx: 12, ry: 12,
+      width: 150, height: 150, rx: 12, ry: 12,
       fill: 'rgba(59, 130, 246, 0.5)', stroke: '#3b82f6', strokeWidth: 2
     });
-    fabricCanvas.current.add(rect);
-    fabricCanvas.current.setActiveObject(rect);
+    canvas.add(rect);
+    canvas.centerObject(rect);
+    canvas.setActiveObject(rect);
+    syncUI();
+    saveHistory();
   };
 
   const addText = () => {
+    const canvas = fabricCanvas.current;
     const text = new fabric.IText('New Text Layer', {
-      left: 150, top: 150, fontFamily: 'Inter', fontSize: 32, fill: '#18181b'
+      fontFamily: 'Inter', fontSize: 32, fill: '#18181b'
     });
-    fabricCanvas.current.add(text);
-    fabricCanvas.current.setActiveObject(text);
+    canvas.add(text);
+    canvas.centerObject(text);
+    canvas.setActiveObject(text);
+    syncUI();
+    saveHistory();
   };
 
   const addImage = (file) => {
@@ -328,8 +337,16 @@ const App = () => {
     const canvas = fabricCanvas.current;
     const active = canvas.getActiveObject();
     if (!active) return;
-    active.set(prop, value);
+
+    if (prop === 'fontSize') {
+      active.set({ fontSize: value, scaleX: 1, scaleY: 1 });
+    } else {
+      active.set(prop, value);
+    }
+
+    if (active.setCoords) active.setCoords();
     canvas.renderAll();
+    syncUI();
     saveHistory();
   };
 
@@ -347,6 +364,7 @@ const App = () => {
     }
     obj.applyFilters();
     fabricCanvas.current.renderAll();
+    syncUI();
     saveHistory();
   };
 
@@ -521,12 +539,39 @@ const App = () => {
                   <div className="prop-input-group">
                     <label>Font</label>
                     <select value={selectedObject.fontFamily} onChange={(e) => setProperty('fontFamily', e.target.value)}>
-                      <option>Inter</option><option>Roboto</option><option>Georgia</option><option>Monospace</option>
+                      <option value="Inter">Inter (Sans)</option>
+                      <option value="Roboto">Roboto</option>
+                      <option value="Georgia">Georgia (Serif)</option>
+                      <option value="Montserrat">Montserrat</option>
+                      <option value="Playfair Display">Playfair Display</option>
+                      <option value="Courier New">Monospace</option>
                     </select>
+                  </div>
+                  <div className="prop-input-group">
+                    <label>Font Size</label>
+                    <div className="modern-input-group">
+                      <button className="input-step-btn" onClick={() => setProperty('fontSize', Math.max(1, selectedObject.fontSize - 1))}>-</button>
+                      <input type="number" value={Math.round(selectedObject.fontSize)} onChange={(e) => setProperty('fontSize', parseInt(e.target.value) || 1)} />
+                      <button className="input-step-btn" onClick={() => setProperty('fontSize', selectedObject.fontSize + 1)}>+</button>
+                    </div>
+                  </div>
+                  <div className="prop-input-group">
+                    <label>Text Color</label>
+                    <input type="color" value={selectedObject.fill} onChange={(e) => setProperty('fill', e.target.value)} />
                   </div>
                   <div className="flex-row">
                     <button className={`toggle-btn ${selectedObject.fontWeight === 'bold' ? 'active' : ''}`} onClick={() => setProperty('fontWeight', selectedObject.fontWeight === 'bold' ? 'normal' : 'bold')}><Bold size={16} /></button>
                     <button className={`toggle-btn ${selectedObject.fontStyle === 'italic' ? 'active' : ''}`} onClick={() => setProperty('fontStyle', selectedObject.fontStyle === 'italic' ? 'normal' : 'italic')}><Italic size={16} /></button>
+                  </div>
+                </div>
+              )}
+
+              {/* Shape Controls (Rect) */}
+              {selectedObject.type === 'rect' && (
+                <div className="shape-tools">
+                  <div className="prop-input-group">
+                    <label>Fill Color</label>
+                    <input type="color" value={selectedObject.fill} onChange={(e) => setProperty('fill', e.target.value)} />
                   </div>
                 </div>
               )}
