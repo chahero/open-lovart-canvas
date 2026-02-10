@@ -18,6 +18,8 @@ const App = () => {
   const [selectedObject, setSelectedObject] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
   const [marks, setMarks] = useState([]);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [showAiInput, setShowAiInput] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
   const [snapEnabled, setSnapEnabled] = useState(true);
@@ -28,6 +30,7 @@ const App = () => {
   const [renamingId, setRenamingId] = useState(null);
   const [draggedLayerIndex, setDraggedLayerIndex] = useState(null);
   const [dragOverIndex, setDragOverIndex] = useState(null);
+  const [isAiProcessing, setIsAiProcessing] = useState(false);
 
   // --- Refs ---
   const canvasRef = useRef(null);
@@ -350,6 +353,88 @@ const App = () => {
     saveHistory();
   };
 
+  const removeBackground = async () => {
+    const canvas = fabricCanvas.current;
+    const active = canvas.getActiveObject();
+    if (!active || (active.type !== 'FabricImage' && active.type !== 'image')) return;
+
+    setIsAiProcessing(true);
+    try {
+      const dataURL = active.toDataURL({ format: 'png' });
+      const blob = await (await fetch(dataURL)).blob();
+
+      const formData = new FormData();
+      formData.append('file', blob, 'image.png');
+
+      const response = await fetch('http://localhost:8000/remove-bg', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error('Failed to remove background');
+
+      const resultBlob = await response.blob();
+      const resultURL = URL.createObjectURL(resultBlob);
+
+      const img = await fabric.FabricImage.fromURL(resultURL);
+      img.set({
+        left: active.left,
+        top: active.top,
+        scaleX: active.scaleX,
+        scaleY: active.scaleY,
+        angle: active.angle,
+        id: active.id,
+        name: active.name + ' (No BG)'
+      });
+
+      canvas.remove(active);
+      canvas.add(img);
+      canvas.setActiveObject(img);
+      syncUI();
+      saveHistory();
+    } catch (err) {
+      console.error(err);
+      alert('AI Processing Error: ' + err.message);
+    } finally {
+      setIsAiProcessing(false);
+    }
+  };
+
+  const generateAiImage = async () => {
+    if (!aiPrompt.trim()) return;
+    setIsAiProcessing(true);
+    try {
+      const formData = new FormData();
+      formData.append('prompt', aiPrompt);
+
+      const response = await fetch('http://localhost:8000/generate-image', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error('Generation failed');
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+
+      const img = await fabric.FabricImage.fromURL(url);
+      img.scaleToWidth(512);
+      fabricCanvas.current.add(img);
+      fabricCanvas.current.centerObject(img);
+      fabricCanvas.current.setActiveObject(img);
+
+      syncUI();
+      saveHistory();
+      setShowAiInput(false);
+      setAiPrompt('');
+    } catch (err) {
+      console.error(err);
+      alert('AI Generation Error: ' + err.message);
+    } finally {
+      setIsAiProcessing(false);
+    }
+  };
+
   const applyImageFilter = (type, val) => {
     const obj = fabricCanvas.current.getActiveObject();
     if (!obj || obj.type !== 'FabricImage') return;
@@ -418,6 +503,7 @@ const App = () => {
       <button className={`tool-btn ${activeTool === 'mark' ? 'active' : ''}`} onClick={() => setActiveTool('mark')} title="Mark (M)"><Target size={22} /></button>
       <button className={`tool-btn ${activeTool === 'pan' ? 'active' : ''}`} onClick={() => setActiveTool('pan')} title="Pan (H)"><Move size={22} /></button>
       <div className="sidebar-divider" />
+      <button className={`tool-btn ${showAiInput ? 'active' : ''}`} onClick={() => setShowAiInput(!showAiInput)} title="Magic Generate"><Sparkles size={22} /></button>
       <button className="tool-btn" onClick={addRect}><Square size={22} /></button>
       <button className="tool-btn" onClick={addText}><TypeIcon size={22} /></button>
       <div style={{ flexGrow: 1 }} />
@@ -437,6 +523,9 @@ const App = () => {
         </div>
       </div>
       <div className="topbar-actions">
+        <button className="action-tag" onClick={removeBackground} disabled={isAiProcessing}>
+          <Sparkles size={14} /> {isAiProcessing ? 'Removing...' : 'Remove Bg'}
+        </button>
         <button className="action-tag"><Maximize size={14} /> Upscale</button>
         <button className="action-tag"><Scissors size={14} /> Segment</button>
         <button className="action-tag" onClick={groupSelected}><Group size={14} /> Group</button>
@@ -509,6 +598,25 @@ const App = () => {
           </div>
         )}
       </main>
+
+      {showAiInput && (
+        <div className="ai-prompt-overlay">
+          <div className="ai-prompt-container">
+            <Sparkles size={20} className="ai-accent-icon" />
+            <input
+              autoFocus
+              className="ai-prompt-input"
+              placeholder="Describe the image you want to create..."
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && generateAiImage()}
+            />
+            <button className="ai-gen-btn" onClick={generateAiImage} disabled={isAiProcessing}>
+              {isAiProcessing ? 'Generating...' : 'Create'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Control Panel */}
       <aside className="control-panel">
@@ -587,6 +695,14 @@ const App = () => {
                     <input type="checkbox" checked={selectedObject.grayscale} onChange={(e) => applyImageFilter('grayscale', e.target.checked)} />
                     <span>Grayscale</span>
                   </div>
+                  <div className="v-div" style={{ margin: '12px 0' }} />
+                  <button
+                    className={`ai-btn-premium ${isAiProcessing ? 'loading' : ''}`}
+                    onClick={removeBackground}
+                    disabled={isAiProcessing}
+                  >
+                    {isAiProcessing ? 'AI Processing...' : <><Sparkles size={16} /> Remove Background</>}
+                  </button>
                 </div>
               )}
             </div>

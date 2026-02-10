@@ -611,6 +611,111 @@ input[type="color"]::-webkit-color-swatch {
   background: rgba(255, 255, 255, 0.05);
 }
 
+/* AI Premium Action Button */
+.ai-btn-premium {
+  width: 100%;
+  padding: 12px;
+  background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+  border: none;
+  border-radius: 10px;
+  color: white;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: 0.3s;
+  box-shadow: 0 4px 12px rgba(168, 85, 247, 0.3);
+}
+
+.ai-btn-premium:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(168, 85, 247, 0.4);
+}
+
+.ai-btn-premium:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  filter: grayscale(0.5);
+}
+
+.ai-btn-premium.loading {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+/* AI Prompt Overlay */
+.ai-prompt-overlay {
+  position: absolute;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  width: 100%;
+  max-width: 600px;
+  padding: 0 20px;
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.ai-prompt-container {
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent);
+  border-radius: 100px;
+  padding: 8px 8px 8px 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 20px rgba(99, 102, 241, 0.2);
+}
+
+.ai-prompt-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: white;
+  font-size: 15px;
+  outline: none;
+}
+
+.ai-gen-btn {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 10px 24px;
+  border-radius: 100px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.ai-gen-btn:hover {
+  background: #4f46e5;
+  transform: scale(1.05);
+}
+
+.ai-gen-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ai-accent-icon {
+  color: var(--accent);
+  filter: drop-shadow(0 0 5px var(--accent));
+}
+
 .footer-bar {
   grid-column: 2 / 3;
   background: var(--bg-secondary);

@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+python-multipart
+rembg
+segment-anything
+opencv-python
+torch
+torchvision
+numpy
+pillow
+python-dotenv
+httpx

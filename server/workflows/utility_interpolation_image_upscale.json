@@ -1,0 +1,58 @@
+{
+  "2": {
+    "inputs": {
+      "image": "pray.png"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "이미지 로드"
+    }
+  },
+  "3": {
+    "inputs": {
+      "upscale_method": "lanczos",
+      "scale_by": 2,
+      "image": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "ImageScaleBy",
+    "_meta": {
+      "title": "이미지 확대 비율"
+    }
+  },
+  "5": {
+    "inputs": {
+      "filename_prefix": "ComfyUI",
+      "images": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "이미지 저장"
+    }
+  },
+  "7": {
+    "inputs": {
+      "compare_view": {
+        "before": "/api/view?filename=f801313c06421cdc15ae1cad405efc3491b10079411d4af6b99ba002b031f258.png&subfolder=&type=temp",
+        "after": "/api/view?filename=7ac51cc95c747fdd3e9a49739dc0e7c072da3993c5406a66f1a82e2578103946.png&subfolder=&type=temp"
+      },
+      "image_a": [
+        "2",
+        0
+      ],
+      "image_b": [
+        "3",
+        0
+      ]
+    },
+    "class_type": "ImageCompare",
+    "_meta": {
+      "title": "이미지 비교"
+    }
+  }
+}
