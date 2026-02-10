@@ -11,6 +11,8 @@ import {
 import * as fabric from 'fabric';
 import './App.css';
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
 const App = () => {
   // --- States ---
   const [activeTool, setActiveTool] = useState('select');
@@ -366,7 +368,7 @@ const App = () => {
       const formData = new FormData();
       formData.append('file', blob, 'image.png');
 
-      const response = await fetch('http://localhost:8000/remove-bg', {
+      const response = await fetch(`${API_BASE_URL}/remove-bg`, {
         method: 'POST',
         body: formData,
       });
@@ -407,7 +409,7 @@ const App = () => {
       const formData = new FormData();
       formData.append('prompt', aiPrompt);
 
-      const response = await fetch('http://localhost:8000/generate-image', {
+      const response = await fetch(`${API_BASE_URL}/generate-image`, {
         method: 'POST',
         body: formData,
       });

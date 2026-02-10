@@ -13,6 +13,9 @@ from dotenv import load_dotenv
 
 # Load configurations
 load_dotenv()
+SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
+SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 COMFYUI_URL = os.getenv("COMFYUI_URL", "http://localhost:8188")
 
@@ -20,7 +23,7 @@ app = FastAPI(title="Open Lovart AI Orchestrator")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[FRONTEND_URL, "http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -161,4 +164,4 @@ async def generate_image(prompt: str = Form(...)):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host=SERVER_HOST, port=SERVER_PORT)
