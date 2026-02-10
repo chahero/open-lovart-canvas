@@ -272,14 +272,16 @@ const App = () => {
     const active = canvas.getActiveObject();
     if (!active) return;
     const bound = active.getBoundingRect();
+    const offsetX = active.left - bound.left;
+    const offsetY = active.top - bound.top;
 
     switch (type) {
-      case 'left': active.set('left', 0); break;
-      case 'center-h': active.set('left', (canvas.width / 2) - (bound.width / 2)); break;
-      case 'right': active.set('left', canvas.width - bound.width); break;
-      case 'top': active.set('top', 0); break;
-      case 'center-v': active.set('top', (canvas.height / 2) - (bound.height / 2)); break;
-      case 'bottom': active.set('top', canvas.height - bound.height); break;
+      case 'left': active.set('left', offsetX); break;
+      case 'center-h': active.set('left', (canvas.width / 2) - (bound.width / 2) + offsetX); break;
+      case 'right': active.set('left', canvas.width - bound.width + offsetX); break;
+      case 'top': active.set('top', offsetY); break;
+      case 'center-v': active.set('top', (canvas.height / 2) - (bound.height / 2) + offsetY); break;
+      case 'bottom': active.set('top', canvas.height - bound.height + offsetY); break;
     }
     active.setCoords();
     canvas.renderAll();
