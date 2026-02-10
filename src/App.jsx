@@ -26,6 +26,8 @@ const App = () => {
   const [historyStep, setHistoryStep] = useState(-1);
   const [canvasBg, setCanvasBg] = useState('#ffffff');
   const [renamingId, setRenamingId] = useState(null);
+  const [draggedLayerIndex, setDraggedLayerIndex] = useState(null);
+  const [dragOverIndex, setDragOverIndex] = useState(null);
 
   // --- Refs ---
   const canvasRef = useRef(null);
@@ -83,7 +85,7 @@ const App = () => {
     } else {
       setSelectedObject(null);
     }
-  }, []);
+  }, [layers]); // Add layers as dependency if needed, or keep it as is
 
   // --- History (Undo/Redo) Logic ---
   const saveHistory = useCallback(() => {
@@ -362,6 +364,20 @@ const App = () => {
     saveHistory();
   };
 
+  const moveLayerByDrag = (sourceIdx, targetIdx) => {
+    const canvas = fabricCanvas.current;
+    if (!canvas || sourceIdx === targetIdx) return;
+
+    const sourceObj = layers[sourceIdx].object;
+    // layers[0] is top of stack (last in canvas array)
+    const newCanvasIndex = canvas.getObjects().length - 1 - targetIdx;
+
+    canvas.moveObjectTo(sourceObj, newCanvasIndex);
+    canvas.requestRenderAll();
+    syncUI();
+    saveHistory();
+  };
+
   const renameLayer = (id, newName) => {
     const canvas = fabricCanvas.current;
     const target = canvas.getObjects().find(o => o.id === id);
@@ -534,7 +550,16 @@ const App = () => {
           <h3 className="section-label">Layers</h3>
           <div className="layers-list-modern">
             {layers.map((l, idx) => (
-              <div key={l.id} className={`layer-row ${l.active ? 'active' : ''}`} onClick={() => { fabricCanvas.current.setActiveObject(l.object); fabricCanvas.current.requestRenderAll(); }}>
+              <div
+                key={l.id}
+                className={`layer-row ${l.active ? 'active' : ''} ${draggedLayerIndex === idx ? 'dragging' : ''} ${dragOverIndex === idx ? 'drag-over' : ''}`}
+                draggable
+                onDragStart={() => setDraggedLayerIndex(idx)}
+                onDragOver={(e) => { e.preventDefault(); setDragOverIndex(idx); }}
+                onDragEnd={() => { setDraggedLayerIndex(null); setDragOverIndex(null); }}
+                onDrop={(e) => { e.preventDefault(); moveLayerByDrag(draggedLayerIndex, idx); setDragOverIndex(null); }}
+                onClick={() => { fabricCanvas.current.setActiveObject(l.object); fabricCanvas.current.requestRenderAll(); }}
+              >
                 <div className="l-order-btns">
                   <button onClick={(e) => { e.stopPropagation(); reorderLayer(l.object, 'up'); }}><ChevronUp size={12} /></button>
                   <button onClick={(e) => { e.stopPropagation(); reorderLayer(l.object, 'down'); }}><ChevronDown size={12} /></button>
@@ -545,7 +570,7 @@ const App = () => {
                   <span onDoubleClick={() => setRenamingId(l.id)} className="l-name">{l.name}</span>
                 )}
                 <div className="l-actions">
-                  <button onClick={(e) => { e.stopPropagation(); l.object.visible = !l.object.visible; fabricCanvas.current.requestRenderAll(); setHistoryStep(historyStep); }}>{l.visible ? <Eye size={14} /> : <EyeOff size={14} />}</button>
+                  <button onClick={(e) => { e.stopPropagation(); l.object.visible = !l.object.visible; fabricCanvas.current.requestRenderAll(); syncUI(); }}>{l.visible ? <Eye size={14} /> : <EyeOff size={14} />}</button>
                   <button onClick={(e) => { e.stopPropagation(); fabricCanvas.current.remove(l.object); }}><Trash2 size={14} /></button>
                 </div>
               </div>

@@ -433,6 +433,17 @@ select {
   background: var(--accent-soft);
 }
 
+.layer-row.dragging {
+  opacity: 0.4;
+  background: var(--bg-secondary);
+  border: 1px dashed var(--accent);
+}
+
+.layer-row.drag-over {
+  border-top: 2px solid var(--accent);
+  transform: translateY(2px);
+}
+
 .l-order-btns {
   display: flex;
   flex-direction: column;
