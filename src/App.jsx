@@ -363,7 +363,17 @@ const App = () => {
 
     setIsAiProcessing(true);
     try {
+      // Save current state to prevent double transformation
+      const originalAngle = active.angle;
+      const originalScaleX = active.scaleX;
+      const originalScaleY = active.scaleY;
+
+      // Temporarily reset transformation for clean export at native resolution
+      active.set({ angle: 0, scaleX: 1, scaleY: 1 });
       const dataURL = active.toDataURL({ format: 'png' });
+      // Restore immediately
+      active.set({ angle: originalAngle, scaleX: originalScaleX, scaleY: originalScaleY });
+
       const blob = await (await fetch(dataURL)).blob();
 
       const formData = new FormData();
