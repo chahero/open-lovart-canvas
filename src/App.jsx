@@ -33,6 +33,7 @@ const App = () => {
   const [draggedLayerIndex, setDraggedLayerIndex] = useState(null);
   const [dragOverIndex, setDragOverIndex] = useState(null);
   const [isAiProcessing, setIsAiProcessing] = useState(false);
+  const [showRemoveBgConfirm, setShowRemoveBgConfirm] = useState(false);
 
   // --- Refs ---
   const canvasRef = useRef(null);
@@ -394,6 +395,7 @@ const App = () => {
       canvas.setActiveObject(img);
       syncUI();
       saveHistory();
+      setShowRemoveBgConfirm(false); // Close modal on success
     } catch (err) {
       console.error(err);
       alert('AI Processing Error: ' + err.message);
@@ -525,7 +527,11 @@ const App = () => {
         </div>
       </div>
       <div className="topbar-actions">
-        <button className="action-tag" onClick={removeBackground} disabled={isAiProcessing}>
+        <button
+          className="action-tag"
+          onClick={() => setShowRemoveBgConfirm(true)}
+          disabled={isAiProcessing || !(selectedObject?.type === 'FabricImage' || selectedObject?.type === 'image')}
+        >
           <Sparkles size={14} /> {isAiProcessing ? 'Removing...' : 'Remove Bg'}
         </button>
         <button className="action-tag"><Maximize size={14} /> Upscale</button>
@@ -697,14 +703,6 @@ const App = () => {
                     <input type="checkbox" checked={selectedObject.grayscale} onChange={(e) => applyImageFilter('grayscale', e.target.checked)} />
                     <span>Grayscale</span>
                   </div>
-                  <div className="v-div" style={{ margin: '12px 0' }} />
-                  <button
-                    className={`ai-btn-premium ${isAiProcessing ? 'loading' : ''}`}
-                    onClick={removeBackground}
-                    disabled={isAiProcessing}
-                  >
-                    {isAiProcessing ? 'AI Processing...' : <><Sparkles size={16} /> Remove Background</>}
-                  </button>
                 </div>
               )}
             </div>
@@ -758,6 +756,37 @@ const App = () => {
         <span>{fabricCanvas.current?.width}x{fabricCanvas.current?.height}</span>
         <span>Zoom: {Math.round(zoom * 100)}%</span>
       </footer>
+
+      {/* Confirmation Modal */}
+      {showRemoveBgConfirm && (
+        <div className="modal-overlay" onClick={() => !isAiProcessing && setShowRemoveBgConfirm(false)}>
+          <div className="confirm-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-icon-circle">
+              <Sparkles size={32} />
+            </div>
+            <div className="modal-text">
+              <h3>Remove Background?</h3>
+              <p>AI will analyze the image and remove the background. This action can be undone.</p>
+            </div>
+            <div className="modal-actions">
+              <button
+                className="modal-btn cancel"
+                onClick={() => setShowRemoveBgConfirm(false)}
+                disabled={isAiProcessing}
+              >
+                Cancel
+              </button>
+              <button
+                className="modal-btn confirm"
+                onClick={removeBackground}
+                disabled={isAiProcessing}
+              >
+                {isAiProcessing ? 'Processing...' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div >
   );
 };

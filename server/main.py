@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from PIL import Image
 from dotenv import load_dotenv
+from rembg import remove, new_session
 
 # Load configurations
 load_dotenv()
@@ -18,6 +19,12 @@ SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 COMFYUI_URL = os.getenv("COMFYUI_URL", "http://localhost:8188")
+
+# Initialize rembg session for persistent model loading
+try:
+    rembg_session = new_session()
+except Exception:
+    rembg_session = None
 
 app = FastAPI(title="Open Lovart AI Orchestrator")
 
@@ -77,21 +84,22 @@ async def update_config(data: dict):
 @app.post("/remove-bg")
 async def remove_background(file: UploadFile = File(...)):
     """
-    Remove Background - Using ComfyUI if possible, else fallback to RemBG
+    Remove Background using local rembg (pip package)
     """
-    input_data = await file.read()
-    
-    # Example approach:
-    # 1. Upload image to ComfyUI first
-    # 2. Execute workflow that uses that image
-    
-    # FOR NOW: Local RemBG for instant functionality while we perfect ComfyUI workflows
     try:
-        from rembg import remove
-        output_data = remove(input_data)
+        input_data = await file.read()
+        
+        # Use existing session if available for speed
+        if rembg_session:
+            output_data = remove(input_data, session=rembg_session)
+        else:
+            output_data = remove(input_data)
+            
         return StreamingResponse(io.BytesIO(output_data), media_type="image/png")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Background removal failed: {str(e)}")
 
 @app.post("/segment")
 async def segment_object(
