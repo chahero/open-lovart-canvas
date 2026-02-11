@@ -202,15 +202,23 @@ const App = () => {
 
     let isPanning = false;
     const handleMouseMove = (opt) => {
-      if (!canvas.getActiveObject() || canvas.getActiveObject().id !== 'temp-prompt-box') return;
-      const pointer = canvas.getScenePoint(opt.e);
       const active = canvas.getActiveObject();
+      if (!active || active.id !== 'temp-prompt-box') return;
+
+      const pointer = canvas.getScenePoint(opt.e);
+      const originX = active._originX; // Retrieve stashed origin
+      const originY = active._originY;
+
       active.set({
-        width: Math.abs(pointer.x - active.left),
-        height: Math.abs(pointer.y - active.top),
+        left: Math.min(pointer.x, originX),
+        top: Math.min(pointer.y, originY),
+        width: Math.abs(pointer.x - originX),
+        height: Math.abs(pointer.y - originY),
+        originX: 'left',
+        originY: 'top'
       });
-      if (pointer.x < active.left) active.set({ scaleX: -1 }); else active.set({ scaleX: 1 });
-      if (pointer.y < active.top) active.set({ scaleY: -1 }); else active.set({ scaleY: 1 });
+
+      active.setCoords();
       canvas.renderAll();
     };
 
@@ -226,11 +234,9 @@ const App = () => {
           canvas.remove(active);
         } else {
           // It's a box - save as promptBox
-          const p1 = { x: active.left, y: active.top };
-          const p2 = { x: active.left + (active.width * active.scaleX), y: active.top + (active.height * active.scaleY) };
           setPromptBox([
-            Math.min(p1.x, p2.x), Math.min(p1.y, p2.y),
-            Math.max(p1.x, p2.x), Math.max(p1.y, p2.y)
+            active.left, active.top,
+            active.left + active.width, active.top + active.height
           ]);
         }
 
@@ -283,11 +289,15 @@ const App = () => {
           stroke: '#34d399',
           strokeWidth: 2,
           selectable: false,
-          id: 'temp-prompt-box'
+          id: 'temp-prompt-box',
+          originX: 'left',
+          originY: 'top'
         });
         canvas.add(rect);
-        // Stash the potential target image in the rect for later retrieval
+        // Stash the potential target image AND origin point for standard dragging
         rect._potentialTarget = finalTarget;
+        rect._originX = pointer.x;
+        rect._originY = pointer.y;
 
         canvas.setActiveObject(rect);
         canvas.selection = false;
