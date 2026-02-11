@@ -34,6 +34,8 @@ const App = () => {
   const [dragOverIndex, setDragOverIndex] = useState(null);
   const [isAiProcessing, setIsAiProcessing] = useState(false);
   const [showRemoveBgConfirm, setShowRemoveBgConfirm] = useState(false);
+  const [showSegmentModal, setShowSegmentModal] = useState(false);
+  const [segmentText, setSegmentText] = useState('');
 
   // --- Refs ---
   const canvasRef = useRef(null);
@@ -458,14 +460,16 @@ const App = () => {
       return;
     }
 
-    // Ask for a text prompt (Optional if marks exist)
-    const textPrompt = prompt("What would you like to segment? (e.g., 'statue', 'person', 'sword')\nLeave empty to use Mark points only.", "");
+    // Open modern modal instead of window.prompt
+    setShowSegmentModal(true);
+  };
 
-    if (!textPrompt && marks.length === 0) {
-      alert("Please provide either a text prompt or at least one Mark point.");
-      return;
-    }
+  const executeSegment = async (textPrompt) => {
+    const canvas = fabricCanvas.current;
+    const active = canvas.getActiveObject();
+    if (!active) return;
 
+    setShowSegmentModal(false);
     setIsAiProcessing(true);
     try {
       // 1. Save original transformation
@@ -888,6 +892,53 @@ const App = () => {
                 disabled={isAiProcessing}
               >
                 {isAiProcessing ? 'Processing...' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* SAM 3 Segmentation Modal */}
+      {showSegmentModal && (
+        <div className="modal-overlay" onClick={() => !isAiProcessing && setShowSegmentModal(false)}>
+          <div className="confirm-modal segment-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-icon-circle segment">
+              <Scissors size={28} />
+            </div>
+            <div className="modal-text">
+              <h3>Segment Object</h3>
+              <p>Type what you want to extract from the image.</p>
+              <div className="modal-input-group">
+                <input
+                  type="text"
+                  placeholder="e.g. person, statue, cat..."
+                  className="modal-input"
+                  value={segmentText}
+                  onChange={(e) => setSegmentText(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && executeSegment(segmentText)}
+                  autoFocus
+                />
+                {marks.length > 0 && (
+                  <p className="mark-status">
+                    <Target size={12} style={{ marginRight: 4 }} />
+                    {marks.length} mark points will also be used
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button
+                className="modal-btn cancel"
+                onClick={() => setShowSegmentModal(false)}
+                disabled={isAiProcessing}
+              >
+                Cancel
+              </button>
+              <button
+                className="modal-btn confirm segment"
+                onClick={() => executeSegment(segmentText)}
+                disabled={isAiProcessing || (!segmentText && marks.length === 0)}
+              >
+                {isAiProcessing ? 'Processing...' : 'Segment'}
               </button>
             </div>
           </div>
