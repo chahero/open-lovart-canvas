@@ -693,6 +693,67 @@ const App = () => {
     }
   };
 
+  const convertToText = async () => {
+    const canvas = fabricCanvas.current;
+    const active = canvas.getActiveObject();
+    if (!active || (active.type !== 'FabricImage' && active.type !== 'image')) {
+      alert("Please select a segmented image layer (the text image) first.");
+      return;
+    }
+
+    setIsAiProcessing(true);
+    try {
+      // 1. Export the current image
+      const dataURL = active.toDataURL({ format: 'png' });
+      const blob = await (await fetch(dataURL)).blob();
+
+      const formData = new FormData();
+      formData.append('file', blob, 'text_region.png');
+
+      // 2. Extract text information from backend
+      const response = await fetch(`${API_BASE_URL}/extract-text`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error('Text recognition failed');
+
+      const data = await response.json();
+      if (!data.content || data.content.trim() === "") {
+        alert("AI could not recognize any text in this image.");
+        return;
+      }
+
+      // 3. Create a new IText object
+      const textObj = new fabric.IText(data.content, {
+        left: active.left,
+        top: active.top,
+        fontSize: (active.height * active.scaleY) * 0.8, // Approximate size
+        fill: data.color || '#000000',
+        fontWeight: data.isBold ? 'bold' : 'normal',
+        fontFamily: 'Inter',
+        angle: active.angle,
+        scaleX: active.scaleX,
+        scaleY: active.scaleY,
+        originX: active.originX,
+        originY: active.originY
+      });
+
+      // 4. Hide original image and add text
+      active.set({ visible: false });
+      canvas.add(textObj);
+      canvas.setActiveObject(textObj);
+
+      syncUI();
+      saveHistory();
+    } catch (err) {
+      console.error(err);
+      alert('Text Conversion Error: ' + err.message);
+    } finally {
+      setIsAiProcessing(false);
+    }
+  };
+
   const applyImageFilter = (type, val) => {
     const obj = fabricCanvas.current.getActiveObject();
     if (!obj || obj.type !== 'FabricImage') return;
@@ -809,6 +870,13 @@ const App = () => {
           disabled={isAiProcessing || !(selectedObject?.type === 'FabricImage' || selectedObject?.type === 'image')}
         >
           <Scissors size={14} /> {isAiProcessing ? 'Segmenting...' : 'Segment'}
+        </button>
+        <button
+          className="action-tag"
+          onClick={convertToText}
+          disabled={isAiProcessing || !(selectedObject?.type === 'FabricImage' || selectedObject?.type === 'image')}
+        >
+          <TypeIcon size={14} /> {isAiProcessing ? 'Converting...' : 'To Text'}
         </button>
         <button className="action-tag" onClick={groupSelected}><Group size={14} /> Group</button>
         <button className="action-tag" onClick={ungroupSelected}><Ungroup size={14} /> Ungroup</button>

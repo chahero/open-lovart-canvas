@@ -15,7 +15,7 @@ from ultralytics import SAM
 from ultralytics.models.sam import SAM3SemanticPredictor
 import numpy as np
 import torch
-import json
+import re
 from scipy.ndimage import zoom
 
 # Load configurations
@@ -23,7 +23,7 @@ load_dotenv()
 SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
 SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://192.168.0.67:11434")
 COMFYUI_URL = os.getenv("COMFYUI_URL", "http://localhost:8188")
 
 # Initialize rembg session for persistent model loading
@@ -198,7 +198,6 @@ async def segment_object(
         res_image = Image.fromarray(output_img)
         buf = io.BytesIO()
         res_image.save(buf, format="PNG")
-        
         return StreamingResponse(io.BytesIO(buf.getvalue()), media_type="image/png")
 
     except HTTPException:
@@ -208,6 +207,90 @@ async def segment_object(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Segmentation failed: {str(e)}")
+
+@app.post("/extract-text")
+async def extract_text(file: UploadFile = File(...)):
+    """
+    Extract text content using DeepSeek-OCR (optimized for high accuracy).
+    """
+    try:
+        # Load and preprocess image
+        img_data = await file.read()
+        image = Image.open(io.BytesIO(img_data))
+        
+        # Ensure RGB mode
+        if image.mode == 'RGBA':
+            background = Image.new("RGB", image.size, (255, 255, 255))
+            background.paste(image, mask=image.split()[3])
+            image = background
+        else:
+            image = image.convert("RGB")
+            
+        # Optimization for OCR
+        max_size = 1024
+        if max(image.size) > max_size:
+            ratio = max_size / max(image.size)
+            new_size = (int(image.size[0] * ratio), int(image.size[1] * ratio))
+            image = image.resize(new_size, Image.Resampling.LANCZOS)
+            
+        # Re-encode to Base64
+        buffered = io.BytesIO()
+        image.save(buffered, format="JPEG")
+        img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+        
+        # Using DeepSeek-OCR official recommended prompt
+        payload = {
+            "model": "deepseek-ocr:3b",
+            "prompt": "Extract the text in the image.",
+            "images": [img_b64],
+            "stream": False,
+            "options": {
+                "temperature": 0.1
+            }
+        }
+        
+        async with httpx.AsyncClient() as client:
+            res = await client.post(
+                f"{OLLAMA_URL}/api/generate", 
+                json=payload, 
+                timeout=300.0
+            )
+            
+            if res.status_code == 200:
+                result = res.json()
+                raw_response = result.get('response', '').strip()
+                print(f"DeepSeek-OCR Raw Response: [{raw_response}]")
+                
+                # --- Cleaning logic ---
+                # 1. Remove markdown code blocks if present
+                clean_response = re.sub(r'```.*?```', '', raw_response, flags=re.DOTALL)
+                if not clean_response.strip(): clean_response = raw_response
+                
+                # 2. Split into lines and deduplicate while preserving order
+                lines = [line.strip() for line in clean_response.split('\n') if line.strip()]
+                unique_lines = []
+                for line in lines:
+                    if line not in unique_lines:
+                        unique_lines.append(line)
+                
+                # 3. Join back together
+                final_text = " ".join(unique_lines)
+                
+                print(f"DeepSeek-OCR Cleaned Result: {final_text}")
+                return {
+                    "content": final_text,
+                    "color": "#000000",
+                    "isBold": False
+                }
+            else:
+                print(f"Ollama API Error: {res.status_code} - {res.text}")
+                return {"content": "DeepSeek-OCR failed to load. Resource issue?", "color": "#000000", "isBold": False}
+                
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"DeepSeek-OCR Error: {e}")
+        return {"content": f"Connection error: {str(e)}", "color": "#000000", "isBold": False}
 
 @app.post("/analyze-vision")
 async def analyze_vision(file: UploadFile = File(...), prompt: str = Form(...)):
