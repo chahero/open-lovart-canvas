@@ -1086,10 +1086,12 @@ const App = () => {
                   onKeyDown={(e) => e.key === 'Enter' && executeSegment(segmentText)}
                   autoFocus
                 />
-                {marks.length > 0 && (
+                {(marks.length > 0 || promptBox) && (
                   <p className="mark-status">
                     <Target size={12} style={{ marginRight: 4 }} />
-                    {marks.length} mark points will also be used
+                    {marks.length > 0 ? `${marks.length} points` : ''}
+                    {marks.length > 0 && promptBox ? ' & ' : ''}
+                    {promptBox ? 'Area Selection' : ''} will be used
                   </p>
                 )}
               </div>
@@ -1105,7 +1107,7 @@ const App = () => {
               <button
                 className="modal-btn confirm segment"
                 onClick={() => executeSegment(segmentText)}
-                disabled={isAiProcessing || (!segmentText && marks.length === 0)}
+                disabled={isAiProcessing || (!segmentText && marks.length === 0 && !promptBox)}
               >
                 {isAiProcessing ? 'Processing...' : 'Segment'}
               </button>
