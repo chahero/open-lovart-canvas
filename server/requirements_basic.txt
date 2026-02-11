@@ -1,3 +1,4 @@
+--extra-index-url https://download.pytorch.org/whl/cu130
 fastapi
 uvicorn
 python-multipart
@@ -12,3 +13,5 @@ python-dotenv
 httpx
 rembg[gpu]
 onnxruntime-gpu
+ultralytics
+numpy

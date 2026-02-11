@@ -204,7 +204,7 @@ const App = () => {
         canvas.lastPosY = opt.e.clientY;
       }
       if (activeToolRef.current === 'mark') {
-        const pointer = canvas.getPointer(opt.e);
+        const pointer = canvas.getScenePoint(opt.e);
         const newMark = { id: Date.now(), x: pointer.x, y: pointer.y };
         setMarks(prev => [...prev, newMark]);
         return;
@@ -449,6 +449,76 @@ const App = () => {
     }
   };
 
+  const segmentObject = async () => {
+    const canvas = fabricCanvas.current;
+    const active = canvas.getActiveObject();
+    if (!active || (active.type !== 'FabricImage' && active.type !== 'image')) {
+      alert("Please select an image layer first.");
+      return;
+    }
+
+    if (marks.length === 0) {
+      alert("Please mark at least one point on the image using the Mark tool (M).");
+      return;
+    }
+
+    setIsAiProcessing(true);
+    try {
+      // 1. Export clean image (no scale/angle)
+      const originalAngle = active.angle;
+      const originalScaleX = active.scaleX;
+      const originalScaleY = active.scaleY;
+
+      active.set({ angle: 0, scaleX: 1, scaleY: 1 });
+      const dataURL = active.toDataURL({ format: 'png' });
+
+      const points = marks.map(m => [
+        Math.round(m.x - active.left),
+        Math.round(m.y - active.top)
+      ]);
+
+      active.set({ angle: originalAngle, scaleX: originalScaleX, scaleY: originalScaleY });
+
+      const blob = await (await fetch(dataURL)).blob();
+      const formData = new FormData();
+      formData.append('file', blob, 'image.png');
+      formData.append('points', JSON.stringify(points));
+      formData.append('labels', JSON.stringify(points.map(() => 1)));
+
+      const response = await fetch(`${API_BASE_URL}/segment`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) throw new Error('Segmentation failed');
+
+      const resultBlob = await response.blob();
+      const resultURL = URL.createObjectURL(resultBlob);
+
+      const img = await fabric.FabricImage.fromURL(resultURL);
+      img.set({
+        left: active.left,
+        top: active.top,
+        scaleX: active.scaleX,
+        scaleY: active.scaleY,
+        angle: active.angle,
+        name: active.name + ' (Segment)'
+      });
+
+      canvas.add(img);
+      canvas.setActiveObject(img);
+
+      setMarks([]);
+      syncUI();
+      saveHistory();
+    } catch (err) {
+      console.error(err);
+      alert('AI Segmentation Error: ' + err.message);
+    } finally {
+      setIsAiProcessing(false);
+    }
+  };
+
   const applyImageFilter = (type, val) => {
     const obj = fabricCanvas.current.getActiveObject();
     if (!obj || obj.type !== 'FabricImage') return;
@@ -545,7 +615,13 @@ const App = () => {
           <Sparkles size={14} /> {isAiProcessing ? 'Removing...' : 'Remove Bg'}
         </button>
         <button className="action-tag"><Maximize size={14} /> Upscale</button>
-        <button className="action-tag"><Scissors size={14} /> Segment</button>
+        <button
+          className="action-tag"
+          onClick={segmentObject}
+          disabled={isAiProcessing || !(selectedObject?.type === 'FabricImage' || selectedObject?.type === 'image')}
+        >
+          <Scissors size={14} /> {isAiProcessing ? 'Segmenting...' : 'Segment'}
+        </button>
         <button className="action-tag" onClick={groupSelected}><Group size={14} /> Group</button>
         <button className="action-tag" onClick={ungroupSelected}><Ungroup size={14} /> Ungroup</button>
       </div>
