@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from PIL import Image
 from dotenv import load_dotenv
 from rembg import remove, new_session
-from ultralytics import SAM
+from ultralytics.models.sam import SAM3SemanticPredictor
 import numpy as np
 import torch
 import json
@@ -31,12 +31,21 @@ try:
 except Exception:
     rembg_session = None
 
-# Initialize SAM 3 model
+# Initialize SAM 3 Predictor
 try:
-    sam3_model = SAM("sam3.pt") 
+    overrides = dict(
+        conf=0.25,
+        task="segment",
+        mode="predict",
+        model="sam3.pt",
+        half=torch.cuda.is_available(), # Use half precision if GPU is available
+        save=False,
+    )
+    sam3_predictor = SAM3SemanticPredictor(overrides=overrides)
+    # The weights are usually loaded during initialization or first use
 except Exception as e:
-    print(f"SAM 3 model load failed: {e}")
-    sam3_model = None
+    print(f"SAM 3 Predictor initialization failed: {e}")
+    sam3_predictor = None
 
 app = FastAPI(title="Open Lovart AI Orchestrator")
 
@@ -116,14 +125,15 @@ async def remove_background(file: UploadFile = File(...)):
 @app.post("/segment")
 async def segment_object(
     file: UploadFile = File(...),
-    points: str = Form(...), 
-    labels: str = Form("[]") 
+    points: str = Form("[]"), 
+    labels: str = Form("[]"),
+    text: str = Form(None)
 ):
     """
-    Segment Object using SAM 3
+    Segment Object using SAM 3 (Concept/Point Segmentation)
     """
-    if not sam3_model:
-        raise HTTPException(status_code=500, detail="SAM 3 model not initialized.")
+    if not sam3_predictor:
+        raise HTTPException(status_code=500, detail="SAM 3 Predictor not initialized.")
 
     try:
         # Load image
@@ -132,33 +142,41 @@ async def segment_object(
         img_np = np.array(image)
         h, w = img_np.shape[:2]
 
-        # Parse points (list of [x, y])
-        pts = json.loads(points)
-        print(f"--- SAM 3 Request ---")
-        print(f"Image Size: {w}x{h}")
-        print(f"Input Points: {pts}")
-
-        if not pts:
-            raise HTTPException(status_code=400, detail="No points provided.")
-        
-        # Labels for points (1 for positive/foreground)
+        pts = json.loads(points) if points else []
         lbls = json.loads(labels) if labels else [1] * len(pts)
 
-        # Run SAM 3 Inference
-        results = sam3_model.predict(source=img_np, points=pts, labels=lbls, device="cuda" if torch.cuda.is_available() else "cpu")
+        print(f"--- SAM 3 Request ---")
+        print(f"Image Size: {w}x{h}")
+        print(f"Text Prompt: {text}")
+        print(f"Input Points: {pts}")
+
+        # Use the Predictor interface
+        # 1. Set image
+        sam3_predictor.set_image(img_np)
         
-        # Get the first resulting mask (SAM 3 returns a list of result objects)
+        # 2. Prepare query
+        query_args = {}
+        if text:
+            query_args["text"] = [text] # Predictor expects a list
+        
+        if pts:
+            query_args["points"] = pts
+            query_args["labels"] = lbls
+
+        # 3. Perform Inference
+        results = sam3_predictor(**query_args)
+        
         if not results or len(results) == 0:
             raise HTTPException(status_code=500, detail="No evaluation results from SAM 3.")
         
-        # Check if masks exist
-        if results[0].masks is None or len(results[0].masks.data) == 0:
-            raise HTTPException(status_code=400, detail="AI could not identify any object at that point. Please try clicking another part of the object.")
+        # In SAM 3 Predictor, results often contain masks directly
+        # If it's similar to standard YOLO results:
+        if not hasattr(results[0], 'masks') or results[0].masks is None or len(results[0].masks.data) == 0:
+             raise HTTPException(status_code=400, detail="AI could not identify any object. Please try different text or points.")
 
         mask = results[0].masks.data[0].cpu().numpy() # Extract the best mask
         
-        # Resize mask to original image size if needed
-        h, w = img_np.shape[:2]
+        # Resize mask to original image size if needed (SAM 3 should handle this but safety first)
         mh, mw = mask.shape
         if (h, w) != (mh, mw):
             mask = zoom(mask, (h / mh, w / mw), order=1)

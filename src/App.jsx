@@ -458,8 +458,11 @@ const App = () => {
       return;
     }
 
-    if (marks.length === 0) {
-      alert("Please mark at least one point on the image using the Mark tool (M).");
+    // Ask for a text prompt (Optional if marks exist)
+    const textPrompt = prompt("What would you like to segment? (e.g., 'statue', 'person', 'sword')\nLeave empty to use Mark points only.", "");
+
+    if (!textPrompt && marks.length === 0) {
+      alert("Please provide either a text prompt or at least one Mark point.");
       return;
     }
 
@@ -500,6 +503,7 @@ const App = () => {
       formData.append('file', blob, 'image.png');
       formData.append('points', JSON.stringify(points));
       formData.append('labels', JSON.stringify(points.map(() => 1)));
+      if (textPrompt) formData.append('text', textPrompt);
 
       const response = await fetch(`${API_BASE_URL}/segment`, {
         method: 'POST',
