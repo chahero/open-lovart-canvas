@@ -201,6 +201,9 @@ async def segment_object(
         
         return StreamingResponse(io.BytesIO(buf.getvalue()), media_type="image/png")
 
+    except HTTPException:
+        # Re-raise HTTP exceptions to let FastAPI handle them (e.g. 400 No object detected)
+        raise
     except Exception as e:
         import traceback
         traceback.print_exc()

@@ -661,7 +661,10 @@ const App = () => {
         body: formData,
       });
 
-      if (!response.ok) throw new Error('Segmentation failed');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Segmentation failed' }));
+        throw new Error(errorData.detail || 'Segmentation failed');
+      }
 
       const resultBlob = await response.blob();
       const resultURL = URL.createObjectURL(resultBlob);
