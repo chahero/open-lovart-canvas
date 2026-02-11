@@ -242,7 +242,8 @@ const App = () => {
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const activeObjects = canvas.getActiveObjects();
         activeObjects.forEach(obj => canvas.remove(obj));
-        canvas.discardActiveObject().renderAll();
+        canvas.discardActiveObject();
+        canvas.renderAll();
       }
     };
 
@@ -464,22 +465,20 @@ const App = () => {
 
     setIsAiProcessing(true);
     try {
-      // 1. Export clean image (no scale/angle)
+      // 1. Save original transformation
       const originalAngle = active.angle;
       const originalScaleX = active.scaleX;
       const originalScaleY = active.scaleY;
 
-      active.set({ angle: 0, scaleX: 1, scaleY: 1 });
-      const dataURL = active.toDataURL({ format: 'png' });
-
-      // Robust coordinate mapping using transform matrices (works across Fabric versions)
+      // 2. Map canvas-space marks to original image pixel coordinates 
+      // MUST be done before resetting scale to get accurate local coordinates
       const points = marks.map(m => {
         const point = new fabric.Point(m.x, m.y);
         const matrix = active.calcTransformMatrix();
         const invertedMatrix = fabric.util.invertTransform(matrix);
         const localPt = fabric.util.transformPoint(point, invertedMatrix);
 
-        // Coordinate adjustment based on origin
+        // Add half width/height if origin is center
         const x = active.originX === 'left' ? localPt.x : localPt.x + active.width / 2;
         const y = active.originY === 'top' ? localPt.y : localPt.y + active.height / 2;
 
@@ -487,22 +486,13 @@ const App = () => {
       });
 
       console.log('===== [SAM 3 Debug] =====');
-      console.log('1. Object State:', {
-        name: active.name,
-        type: active.type,
-        left: active.left,
-        top: active.top,
-        width: active.width,
-        height: active.height,
-        scaleX: originalScaleX,
-        scaleY: originalScaleY,
-        angle: originalAngle,
-        boundingRect: active.getBoundingRect()
-      });
-      console.log('2. Raw Marks (Canvas Position):', marks.map(m => ({ x: m.x, y: m.y })));
-      console.log('3. Computed Points (Sent to Server):', points);
-      console.log('=========================');
+      console.log('Processed Points:', points);
 
+      // 3. Export clean image (no scale/angle)
+      active.set({ angle: 0, scaleX: 1, scaleY: 1 });
+      const dataURL = active.toDataURL({ format: 'png' });
+
+      // 4. Restore transforms immediately
       active.set({ angle: originalAngle, scaleX: originalScaleX, scaleY: originalScaleY });
 
       const blob = await (await fetch(dataURL)).blob();
