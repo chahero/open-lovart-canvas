@@ -472,10 +472,36 @@ const App = () => {
       active.set({ angle: 0, scaleX: 1, scaleY: 1 });
       const dataURL = active.toDataURL({ format: 'png' });
 
-      const points = marks.map(m => [
-        Math.round(m.x - active.left),
-        Math.round(m.y - active.top)
-      ]);
+      // Robust coordinate mapping using transform matrices (works across Fabric versions)
+      const points = marks.map(m => {
+        const point = new fabric.Point(m.x, m.y);
+        const matrix = active.calcTransformMatrix();
+        const invertedMatrix = fabric.util.invertTransform(matrix);
+        const localPt = fabric.util.transformPoint(point, invertedMatrix);
+
+        // Coordinate adjustment based on origin
+        const x = active.originX === 'left' ? localPt.x : localPt.x + active.width / 2;
+        const y = active.originY === 'top' ? localPt.y : localPt.y + active.height / 2;
+
+        return [Math.round(x), Math.round(y)];
+      });
+
+      console.log('===== [SAM 3 Debug] =====');
+      console.log('1. Object State:', {
+        name: active.name,
+        type: active.type,
+        left: active.left,
+        top: active.top,
+        width: active.width,
+        height: active.height,
+        scaleX: originalScaleX,
+        scaleY: originalScaleY,
+        angle: originalAngle,
+        boundingRect: active.getBoundingRect()
+      });
+      console.log('2. Raw Marks (Canvas Position):', marks.map(m => ({ x: m.x, y: m.y })));
+      console.log('3. Computed Points (Sent to Server):', points);
+      console.log('=========================');
 
       active.set({ angle: originalAngle, scaleX: originalScaleX, scaleY: originalScaleY });
 
