@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from PIL import Image
 from dotenv import load_dotenv
 from rembg import remove, new_session
+from ultralytics import SAM
 from ultralytics.models.sam import SAM3SemanticPredictor
 import numpy as np
 import torch
@@ -31,20 +32,17 @@ try:
 except Exception:
     rembg_session = None
 
-# Initialize SAM 3 Predictor
+# Initialize SAM 3 models
 try:
-    overrides = dict(
-        conf=0.25,
-        task="segment",
-        mode="predict",
-        model="sam3.pt",
-        half=torch.cuda.is_available(), # Use half precision if GPU is available
-        save=False,
-    )
+    # 1. Standard SAM model for single object (points/boxes)
+    sam3_model = SAM("sam3.pt")
+    
+    # 2. Semantic Predictor for concept segmentation (text)
+    overrides = dict(conf=0.25, task="segment", mode="predict", model="sam3.pt", save=False)
     sam3_predictor = SAM3SemanticPredictor(overrides=overrides)
-    # The weights are usually loaded during initialization or first use
 except Exception as e:
-    print(f"SAM 3 Predictor initialization failed: {e}")
+    print(f"SAM 3 models initialization failed: {e}")
+    sam3_model = None
     sam3_predictor = None
 
 app = FastAPI(title="Open Lovart AI Orchestrator")
@@ -127,13 +125,16 @@ async def segment_object(
     file: UploadFile = File(...),
     points: str = Form("[]"), 
     labels: str = Form("[]"),
+    bboxes: str = Form("[]"), 
     text: str = Form(None)
 ):
     """
-    Segment Object using SAM 3 (Concept/Point Segmentation)
+    Segment Object using SAM 3
+    - Uses SAM3SemanticPredictor if text is provided (Concept mode)
+    - Uses SAM.predict if only points/boxes are provided (Single Object mode)
     """
-    if not sam3_predictor:
-        raise HTTPException(status_code=500, detail="SAM 3 Predictor not initialized.")
+    if not sam3_model or not sam3_predictor:
+        raise HTTPException(status_code=500, detail="SAM 3 models not initialized.")
 
     try:
         # Load image
@@ -144,39 +145,47 @@ async def segment_object(
 
         pts = json.loads(points) if points else []
         lbls = json.loads(labels) if labels else [1] * len(pts)
+        boxes = json.loads(bboxes) if bboxes else []
 
         print(f"--- SAM 3 Request ---")
-        print(f"Image Size: {w}x{h}")
-        print(f"Text Prompt: {text}")
-        print(f"Input Points: {pts}")
+        print(f"Input: Text='{text}', Points={len(pts)}, Boxes={len(boxes)}")
 
-        # Use the Predictor interface
-        # 1. Set image
-        sam3_predictor.set_image(img_np)
-        
-        # 2. Prepare query
-        query_args = {}
+        # Decision Logic
         if text:
-            query_args["text"] = [text] # Predictor expects a list
-        
-        if pts:
-            query_args["points"] = pts
-            query_args["labels"] = lbls
-
-        # 3. Perform Inference
-        results = sam3_predictor(**query_args)
+            # Concept Segmentation Mode
+            print("Mode: Concept Segmentation (SAM3SemanticPredictor)")
+            sam3_predictor.set_image(img_np)
+            query_args = {"text": [text]}
+            if pts: query_args["points"] = pts; query_args["labels"] = lbls
+            if boxes: query_args["bboxes"] = boxes
+            results = sam3_predictor(**query_args)
+        else:
+            # Single Object Mode (SAM 2 Compatibility)
+            print("Mode: Single Object Segmentation (SAM.predict)")
+            predict_args = {
+                "source": img_np,
+                "device": "cuda" if torch.cuda.is_available() else "cpu",
+                "conf": 0.25
+            }
+            if boxes:
+                # SAM.predict expects bboxes=[x1, y1, x2, y2] or list of lists
+                predict_args["bboxes"] = boxes[0] if len(boxes) == 1 else boxes
+            if pts:
+                predict_args["points"] = pts
+                predict_args["labels"] = lbls
+            
+            results = sam3_model.predict(**predict_args)
         
         if not results or len(results) == 0:
             raise HTTPException(status_code=500, detail="No evaluation results from SAM 3.")
         
-        # In SAM 3 Predictor, results often contain masks directly
-        # If it's similar to standard YOLO results:
         if not hasattr(results[0], 'masks') or results[0].masks is None or len(results[0].masks.data) == 0:
-             raise HTTPException(status_code=400, detail="AI could not identify any object. Please try different text or points.")
+             raise HTTPException(status_code=400, detail="AI could not identify any object. Please try different prompts.")
 
-        mask = results[0].masks.data[0].cpu().numpy() # Extract the best mask
+        # Get the best mask
+        mask = results[0].masks.data[0].cpu().numpy()
         
-        # Resize mask to original image size if needed (SAM 3 should handle this but safety first)
+        # Resize mask to original image size
         mh, mw = mask.shape
         if (h, w) != (mh, mw):
             mask = zoom(mask, (h / mh, w / mw), order=1)

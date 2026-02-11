@@ -20,7 +20,7 @@ const App = () => {
   const [selectedObject, setSelectedObject] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
   const [marks, setMarks] = useState([]);
-  const [aiPrompt, setAiPrompt] = useState('');
+  const [promptBox, setPromptBox] = useState(null); // [x1, y1, x2, y2]
   const [showAiInput, setShowAiInput] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
@@ -36,6 +36,7 @@ const App = () => {
   const [showRemoveBgConfirm, setShowRemoveBgConfirm] = useState(false);
   const [showSegmentModal, setShowSegmentModal] = useState(false);
   const [segmentText, setSegmentText] = useState('');
+  const [segmentTarget, setSegmentTarget] = useState(null);
 
   // --- Refs ---
   const canvasRef = useRef(null);
@@ -54,15 +55,17 @@ const App = () => {
     const canvas = fabricCanvas.current;
     if (!canvas) return;
 
-    const objs = canvas.getObjects().map((obj, index) => ({
-      id: obj.id || (obj.id = Math.random().toString(36).substr(2, 9)),
-      name: obj.name || `${obj.type} ${index + 1}`,
-      visible: obj.visible,
-      active: canvas.getActiveObjects().includes(obj),
-      object: obj,
-      type: obj.type,
-      index: index
-    })).reverse();
+    const objs = canvas.getObjects()
+      .filter(obj => obj.id !== 'temp-prompt-box')
+      .map((obj, index) => ({
+        id: obj.id || (obj.id = Math.random().toString(36).substr(2, 9)),
+        name: obj.name || `${obj.type} ${index + 1}`,
+        visible: obj.visible,
+        active: canvas.getActiveObjects().includes(obj),
+        object: obj,
+        type: obj.type,
+        index: index
+      })).reverse();
     setLayers(objs);
 
     const activeObj = canvas.getActiveObject();
@@ -198,7 +201,53 @@ const App = () => {
     });
 
     let isPanning = false;
-    canvas.on('mouse:down', (opt) => {
+    const handleMouseMove = (opt) => {
+      if (!canvas.getActiveObject() || canvas.getActiveObject().id !== 'temp-prompt-box') return;
+      const pointer = canvas.getScenePoint(opt.e);
+      const active = canvas.getActiveObject();
+      active.set({
+        width: Math.abs(pointer.x - active.left),
+        height: Math.abs(pointer.y - active.top),
+      });
+      if (pointer.x < active.left) active.set({ scaleX: -1 }); else active.set({ scaleX: 1 });
+      if (pointer.y < active.top) active.set({ scaleY: -1 }); else active.set({ scaleY: 1 });
+      canvas.renderAll();
+    };
+
+    const handleMouseUp = (opt) => {
+      const active = canvas.getActiveObject();
+      if (active && active.id === 'temp-prompt-box') {
+        const stashedTarget = active._potentialTarget;
+
+        if (active.width < 5 && active.height < 5) {
+          // It's a click, not a drag - create a Point mark
+          const newMark = { id: Date.now(), x: active.left, y: active.top };
+          setMarks(prev => [...prev, newMark]);
+          canvas.remove(active);
+        } else {
+          // It's a box - save as promptBox
+          const p1 = { x: active.left, y: active.top };
+          const p2 = { x: active.left + (active.width * active.scaleX), y: active.top + (active.height * active.scaleY) };
+          setPromptBox([
+            Math.min(p1.x, p2.x), Math.min(p1.y, p2.y),
+            Math.max(p1.x, p2.x), Math.max(p1.y, p2.y)
+          ]);
+        }
+
+        // Restore image selection
+        if (stashedTarget) {
+          canvas.setActiveObject(stashedTarget);
+        }
+
+        canvas.selection = true;
+        canvas.renderAll();
+        syncUI();
+      }
+      isPanning = false;
+      canvas.selection = true;
+    };
+
+    const handleMouseDown = (opt) => {
       if (opt.e.altKey || activeToolRef.current === 'pan') {
         isPanning = true;
         canvas.selection = false;
@@ -207,8 +256,41 @@ const App = () => {
       }
       if (activeToolRef.current === 'mark') {
         const pointer = canvas.getScenePoint(opt.e);
-        const newMark = { id: Date.now(), x: pointer.x, y: pointer.y };
-        setMarks(prev => [...prev, newMark]);
+
+        // Find the image under the cursor (or the only image)
+        const images = canvas.getObjects().filter(o => o.type === 'FabricImage' || o.type === 'image');
+        const hittedImage = opt.target && (opt.target.type === 'FabricImage' || opt.target.type === 'image')
+          ? opt.target
+          : images.find(img => img.containsPoint(pointer));
+
+        const finalTarget = hittedImage || (images.length === 1 ? images[0] : null);
+
+        if (finalTarget) {
+          canvas.setActiveObject(finalTarget);
+          // We don't call syncUI yet because we're about to change active object to the rect
+        }
+
+        // Remove old box to prevent duplicate IDs/Keys
+        const existing = canvas.getObjects().find(o => o.id === 'temp-prompt-box');
+        if (existing) canvas.remove(existing);
+
+        const rect = new fabric.Rect({
+          left: pointer.x,
+          top: pointer.y,
+          width: 0,
+          height: 0,
+          fill: 'transparent',
+          stroke: '#34d399',
+          strokeWidth: 2,
+          selectable: false,
+          id: 'temp-prompt-box'
+        });
+        canvas.add(rect);
+        // Stash the potential target image in the rect for later retrieval
+        rect._potentialTarget = finalTarget;
+
+        canvas.setActiveObject(rect);
+        canvas.selection = false;
         return;
       }
       if (opt.button === 3 && opt.target) {
@@ -217,7 +299,9 @@ const App = () => {
       } else {
         setContextMenu(null);
       }
-    });
+    };
+
+    canvas.on('mouse:down', handleMouseDown);
 
     canvas.on('mouse:move', (opt) => {
       if (isPanning) {
@@ -229,9 +313,10 @@ const App = () => {
         canvas.lastPosX = e.clientX;
         canvas.lastPosY = e.clientY;
       }
+      handleMouseMove(opt); // Call the new handler
     });
 
-    canvas.on('mouse:up', () => { isPanning = false; canvas.selection = true; });
+    canvas.on('mouse:up', handleMouseUp); // Call the new handler
 
     // Keyboard Shortcuts
     const handleKeyDown = (e) => {
@@ -359,6 +444,11 @@ const App = () => {
     saveHistory();
   };
 
+  const ensureHex = (color) => {
+    if (!color || typeof color !== 'string' || !color.startsWith('#')) return '#6366f1';
+    return color;
+  };
+
   const removeBackground = async () => {
     const canvas = fabricCanvas.current;
     const active = canvas.getActiveObject();
@@ -454,19 +544,49 @@ const App = () => {
 
   const segmentObject = async () => {
     const canvas = fabricCanvas.current;
-    const active = canvas.getActiveObject();
+    let active = canvas.getActiveObject();
+
+    // If no image is selected, try to find an image that contains the marks
     if (!active || (active.type !== 'FabricImage' && active.type !== 'image')) {
-      alert("Please select an image layer first.");
-      return;
+      const images = canvas.getObjects().filter(o => o.type === 'FabricImage' || o.type === 'image');
+
+      // Try to find an image that overlaps with the marks
+      let targetImage = null;
+      if (marks.length > 0) {
+        const firstMark = new fabric.Point(marks[0].x, marks[0].y);
+        targetImage = images.find(img => img.containsPoint(firstMark));
+      } else if (promptBox) {
+        const boxCenter = new fabric.Point((promptBox[0] + promptBox[2]) / 2, (promptBox[1] + promptBox[3]) / 2);
+        targetImage = images.find(img => img.containsPoint(boxCenter));
+      }
+
+      if (targetImage) {
+        active = targetImage;
+        canvas.setActiveObject(active);
+        canvas.renderAll();
+        syncUI();
+      } else if (images.length === 1) {
+        active = images[0];
+        canvas.setActiveObject(active);
+        canvas.renderAll();
+        syncUI();
+      } else if (images.length > 1) {
+        alert("Please select the image you want to segment.");
+        return;
+      } else {
+        alert("Please add an image layer first.");
+        return;
+      }
     }
 
-    // Open modern modal instead of window.prompt
+    // Capture the target and open modal
+    setSegmentTarget(active);
     setShowSegmentModal(true);
   };
 
   const executeSegment = async (textPrompt) => {
     const canvas = fabricCanvas.current;
-    const active = canvas.getActiveObject();
+    const active = segmentTarget; // Use the captured target
     if (!active) return;
 
     setShowSegmentModal(false);
@@ -477,23 +597,39 @@ const App = () => {
       const originalScaleX = active.scaleX;
       const originalScaleY = active.scaleY;
 
-      // 2. Map canvas-space marks to original image pixel coordinates 
-      // MUST be done before resetting scale to get accurate local coordinates
+      // 2. Map coordinates
       const points = marks.map(m => {
         const point = new fabric.Point(m.x, m.y);
         const matrix = active.calcTransformMatrix();
         const invertedMatrix = fabric.util.invertTransform(matrix);
         const localPt = fabric.util.transformPoint(point, invertedMatrix);
-
-        // Add half width/height if origin is center
         const x = active.originX === 'left' ? localPt.x : localPt.x + active.width / 2;
         const y = active.originY === 'top' ? localPt.y : localPt.y + active.height / 2;
-
         return [Math.round(x), Math.round(y)];
       });
 
+      let bboxes = [];
+      if (promptBox) {
+        const matrix = active.calcTransformMatrix();
+        const invertedMatrix = fabric.util.invertTransform(matrix);
+
+        const p1 = fabric.util.transformPoint(new fabric.Point(promptBox[0], promptBox[1]), invertedMatrix);
+        const p2 = fabric.util.transformPoint(new fabric.Point(promptBox[2], promptBox[3]), invertedMatrix);
+
+        const offsetX = active.originX === 'left' ? 0 : active.width / 2;
+        const offsetY = active.originY === 'top' ? 0 : active.height / 2;
+
+        bboxes = [[
+          Math.round(Math.min(p1.x, p2.x) + offsetX),
+          Math.round(Math.min(p1.y, p2.y) + offsetY),
+          Math.round(Math.max(p1.x, p2.x) + offsetX),
+          Math.round(Math.max(p1.y, p2.y) + offsetY)
+        ]];
+      }
+
       console.log('===== [SAM 3 Debug] =====');
-      console.log('Processed Points:', points);
+      console.log('Points:', points);
+      console.log('Boxes:', bboxes);
 
       // 3. Export clean image (no scale/angle)
       active.set({ angle: 0, scaleX: 1, scaleY: 1 });
@@ -507,6 +643,7 @@ const App = () => {
       formData.append('file', blob, 'image.png');
       formData.append('points', JSON.stringify(points));
       formData.append('labels', JSON.stringify(points.map(() => 1)));
+      formData.append('bboxes', JSON.stringify(bboxes));
       if (textPrompt) formData.append('text', textPrompt);
 
       const response = await fetch(`${API_BASE_URL}/segment`, {
@@ -559,6 +696,20 @@ const App = () => {
     fabricCanvas.current.renderAll();
     syncUI();
     saveHistory();
+  };
+
+  const clearMarks = () => {
+    setMarks([]);
+    setPromptBox(null);
+    if (fabricCanvas.current) {
+      const box = fabricCanvas.current.getObjects().find(o => o.id === 'temp-prompt-box');
+      if (box) fabricCanvas.current.remove(box);
+      fabricCanvas.current.renderAll();
+    }
+  };
+
+  const removeMark = (id) => {
+    setMarks(prev => prev.filter(m => m.id !== id));
   };
 
   // --- Layer Management ---
@@ -698,21 +849,29 @@ const App = () => {
         <div className="canvas-shadow">
           <canvas ref={canvasRef} />
           {marks.map((m, i) => (
-            <div key={m.id} className="mark-badge-canvas" style={{
-              left: (m.x * fabricCanvas.current.getZoom()) + fabricCanvas.current.viewportTransform[4],
-              top: (m.y * fabricCanvas.current.getZoom()) + fabricCanvas.current.viewportTransform[5]
-            }}>{i + 1}</div>
+            <div
+              key={m.id}
+              className="mark-badge-canvas"
+              title="Click to remove"
+              onClick={(e) => { e.stopPropagation(); removeMark(m.id); }}
+              style={{
+                left: (m.x * fabricCanvas.current.getZoom()) + fabricCanvas.current.viewportTransform[4],
+                top: (m.y * fabricCanvas.current.getZoom()) + fabricCanvas.current.viewportTransform[5]
+              }}>{i + 1}</div>
           ))}
         </div>
         {isDragging && <div className="drop-overlay">Drop images to upload</div>}
 
         {/* Floating Quick AI */}
-        {marks.length > 0 && (
+        {(marks.length > 0 || promptBox) && (
           <div className="quick-ai-panel">
-            <div className="ai-counts"><span>{marks.length}</span> Objects</div>
+            <div className="ai-counts">
+              {marks.length > 0 && <span>{marks.length} Points</span>}
+              {promptBox && <span>Area Selected</span>}
+            </div>
             <div className="v-div" />
-            <button className="ai-action" onClick={() => alert('Extracting...')}>Split Layer</button>
-            <button className="ai-action secondary" onClick={() => setMarks([])}>Clear</button>
+            <button className="ai-action" onClick={segmentObject}>Segment</button>
+            <button className="ai-action secondary" onClick={clearMarks}>Clear All</button>
           </div>
         )}
       </main>
@@ -783,7 +942,7 @@ const App = () => {
                   </div>
                   <div className="prop-input-group">
                     <label>Text Color</label>
-                    <input type="color" value={selectedObject.fill} onChange={(e) => setProperty('fill', e.target.value)} />
+                    <input type="color" value={ensureHex(selectedObject.fill)} onChange={(e) => setProperty('fill', e.target.value)} />
                   </div>
                   <div className="flex-row">
                     <button className={`toggle-btn ${selectedObject.fontWeight === 'bold' ? 'active' : ''}`} onClick={() => setProperty('fontWeight', selectedObject.fontWeight === 'bold' ? 'normal' : 'bold')}><Bold size={16} /></button>
@@ -797,7 +956,7 @@ const App = () => {
                 <div className="shape-tools">
                   <div className="prop-input-group">
                     <label>Fill Color</label>
-                    <input type="color" value={selectedObject.fill} onChange={(e) => setProperty('fill', e.target.value)} />
+                    <input type="color" value={ensureHex(selectedObject.fill)} onChange={(e) => setProperty('fill', e.target.value)} />
                   </div>
                 </div>
               )}

@@ -888,3 +888,37 @@ input[type="color"]::-webkit-color-swatch {
   margin-left: auto;
   margin-right: auto;
 }
+
+/* Canvas Mark Badges */
+.mark-badge-canvas {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  background: var(--accent);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 800;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  cursor: pointer;
+  z-index: 100;
+  border: 2px solid white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.mark-badge-canvas:hover {
+  background: #ef4444;
+  /* Red color on hover to indicate deletion */
+  transform: translate(-50%, -50%) scale(1.3);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+}
+
+.canvas-shadow {
+  position: relative;
+  line-height: 0;
+}
