@@ -12,6 +12,10 @@ import * as fabric from 'fabric';
 import './App.css';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const WORLD_CANVAS_WIDTH = 5000;
+const WORLD_CANVAS_HEIGHT = 5000;
+const WORLD_CENTER_X = WORLD_CANVAS_WIDTH / 2;
+const WORLD_CENTER_Y = WORLD_CANVAS_HEIGHT / 2;
 
 const App = () => {
   // --- States ---
@@ -56,7 +60,7 @@ const App = () => {
     if (!canvas) return;
 
     const objs = canvas.getObjects()
-      .filter(obj => obj.id !== 'temp-prompt-box')
+      .filter(obj => obj.id !== 'temp-prompt-box' && obj.id !== 'world-bounds')
       .map((obj, index) => ({
         id: obj.id || (obj.id = Math.random().toString(36).substr(2, 9)),
         name: obj.name || `${obj.type} ${index + 1}`,
@@ -135,6 +139,13 @@ const App = () => {
 
   // --- Canvas Lifecycle ---
   useEffect(() => {
+    if (fabricCanvas.current) {
+      fabricCanvas.current.dispose();
+      fabricCanvas.current = null;
+    }
+
+    if (!canvasRef.current || !canvasContainerRef.current) return;
+
     if (fabric.FabricObject) {
       fabric.FabricObject.prototype.transparentCorners = false;
       fabric.FabricObject.prototype.cornerColor = '#3b82f6';
@@ -147,20 +158,71 @@ const App = () => {
 
     const canvas = new fabric.Canvas(canvasRef.current, {
       backgroundColor: '#ffffff',
-      width: 900,
-      height: 650,
+      width: canvasContainerRef.current?.clientWidth || 900,
+      height: canvasContainerRef.current?.clientHeight || 650,
       preserveObjectStacking: true,
       stopContextMenu: true,
     });
 
     fabricCanvas.current = canvas;
+    canvas.setViewportTransform([
+      1,
+      0,
+      0,
+      1,
+      (canvas.width - WORLD_CANVAS_WIDTH) / 2,
+      (canvas.height - WORLD_CANVAS_HEIGHT) / 2,
+    ]);
+
+    const worldGridLine = 250;
+    const worldBounds = new fabric.Rect({
+      left: 0,
+      top: 0,
+      width: WORLD_CANVAS_WIDTH,
+      height: WORLD_CANVAS_HEIGHT,
+      fill: 'rgba(255,255,255,0)',
+      stroke: '#252a33',
+      strokeWidth: 2,
+      selectable: false,
+      evented: false,
+      id: 'world-bounds',
+    });
+    const guideLines = [];
+    for (let i = 1; i < WORLD_CANVAS_WIDTH / worldGridLine; i += 1) {
+      guideLines.push(
+        new fabric.Line([i * worldGridLine, 0, i * worldGridLine, WORLD_CANVAS_HEIGHT], {
+          stroke: 'rgba(42,46,55,0.25)',
+          strokeWidth: 1,
+          selectable: false,
+          evented: false,
+          id: 'world-bounds',
+        })
+      );
+    }
+    for (let i = 1; i < WORLD_CANVAS_HEIGHT / worldGridLine; i += 1) {
+      guideLines.push(
+        new fabric.Line([0, i * worldGridLine, WORLD_CANVAS_WIDTH, i * worldGridLine], {
+          stroke: 'rgba(42,46,55,0.25)',
+          strokeWidth: 1,
+          selectable: false,
+          evented: false,
+          id: 'world-bounds',
+        })
+      );
+    }
+    canvas.add(worldBounds);
+    guideLines.forEach((line) => {
+      canvas.add(line);
+      canvas.sendObjectToBack(line);
+    });
+    canvas.sendObjectToBack(worldBounds);
 
     // --- Snapping Logic ---
     const SNAP_THRESHOLD = 10;
     canvas.on('object:moving', (e) => {
       const obj = e.target;
-      const canvasWidth = canvas.width;
-      const canvasHeight = canvas.height;
+      const canvasWidth = WORLD_CANVAS_WIDTH;
+      const canvasHeight = WORLD_CANVAS_HEIGHT;
       const objWidth = obj.getBoundingRect().width;
       const objHeight = obj.getBoundingRect().height;
 
@@ -348,7 +410,10 @@ const App = () => {
     saveHistory();
 
     return () => {
-      canvas.dispose();
+      if (fabricCanvas.current) {
+        fabricCanvas.current.dispose();
+        fabricCanvas.current = null;
+      }
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, []);
@@ -382,11 +447,11 @@ const App = () => {
 
     switch (type) {
       case 'left': active.set('left', offsetX); break;
-      case 'center-h': active.set('left', (canvas.width / 2) - (bound.width / 2) + offsetX); break;
-      case 'right': active.set('left', canvas.width - bound.width + offsetX); break;
+      case 'center-h': active.set('left', WORLD_CENTER_X - (bound.width / 2) + offsetX); break;
+      case 'right': active.set('left', WORLD_CANVAS_WIDTH - bound.width + offsetX); break;
       case 'top': active.set('top', offsetY); break;
-      case 'center-v': active.set('top', (canvas.height / 2) - (bound.height / 2) + offsetY); break;
-      case 'bottom': active.set('top', canvas.height - bound.height + offsetY); break;
+      case 'center-v': active.set('top', WORLD_CENTER_Y - (bound.height / 2) + offsetY); break;
+      case 'bottom': active.set('top', WORLD_CANVAS_HEIGHT - bound.height + offsetY); break;
     }
     active.setCoords();
     canvas.renderAll();
@@ -894,7 +959,9 @@ const App = () => {
       <Topbar />
 
       {/* Main Artboard */}
-      <main className={`artboard ${!showGrid ? 'no-grid' : ''} ${isDragging ? 'dragging' : ''}`}
+      <main
+        ref={canvasContainerRef}
+        className={`artboard ${!showGrid ? 'no-grid' : ''} ${isDragging ? 'dragging' : ''}`}
         onDragOver={(e) => {
           e.preventDefault();
           e.stopPropagation();

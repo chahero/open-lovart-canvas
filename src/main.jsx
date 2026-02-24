@@ -9,8 +9,6 @@ if (!rootElement) {
   console.error('Root element not found!')
 } else {
   ReactDOM.createRoot(rootElement).render(
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>,
+    <App />
   )
 }
