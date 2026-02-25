@@ -3,7 +3,7 @@ import {
   Plus, MousePointer2, Square, Type, Image as ImageIcon, Maximize,
   Layers as LayersIcon, Settings, Download, Trash2, Eye, EyeOff,
   MoreHorizontal, Sparkles, Scissors, Target, Edit3, RotateCcw,
-  RotateCw, Undo2, Redo2, Grid, Search, Move, AlignLeft, AlignCenter,
+  RotateCw, Undo2, Redo2, Grid, Search, Hand, AlignLeft, AlignCenter,
   AlignRight, AlignVerticalJustifyStart, AlignVerticalJustifyCenter,
   AlignVerticalJustifyEnd, Group, Ungroup, Bold, Italic, Type as TypeIcon,
   ChevronUp, ChevronDown
@@ -50,6 +50,7 @@ const App = () => {
   const marksRef = useRef(marks);
   const isSavingHistory = useRef(false);
   const dragCounter = useRef(0);
+  const isSpacePanRef = useRef(false);
 
   // --- Sync Refs ---
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
@@ -174,7 +175,7 @@ const App = () => {
       (canvas.height - WORLD_CANVAS_HEIGHT) / 2,
     ]);
 
-    const worldGridLine = 250;
+    const worldGridLine = 100;
     const worldBounds = new fabric.Rect({
       left: 0,
       top: 0,
@@ -285,6 +286,10 @@ const App = () => {
     };
 
     const handleMouseUp = (opt) => {
+      if (isPanning) {
+        isPanning = false;
+        canvas.upperCanvasEl.style.cursor = isSpacePanRef.current || activeToolRef.current === 'pan' ? 'grab' : '';
+      }
       const active = canvas.getActiveObject();
       if (active && active.id === 'temp-prompt-box') {
         const stashedTarget = active._potentialTarget;
@@ -316,11 +321,12 @@ const App = () => {
     };
 
     const handleMouseDown = (opt) => {
-      if (opt.e.altKey || activeToolRef.current === 'pan') {
+      if (activeToolRef.current === 'pan' || isSpacePanRef.current) {
         isPanning = true;
         canvas.selection = false;
         canvas.lastPosX = opt.e.clientX;
         canvas.lastPosY = opt.e.clientY;
+        canvas.upperCanvasEl.style.cursor = 'grabbing';
       }
       if (activeToolRef.current === 'mark') {
         const pointer = canvas.getScenePoint(opt.e);
@@ -394,6 +400,12 @@ const App = () => {
     const handleKeyDown = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       const active = canvas.getActiveObject();
+      if (e.code === 'Space' && !e.repeat && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+        isSpacePanRef.current = true;
+        canvas.upperCanvasEl.style.cursor = 'grab';
+        e.preventDefault();
+        return;
+      }
       if (e.ctrlKey && e.key === 'z') { undo(); e.preventDefault(); }
       if (e.ctrlKey && e.key === 'y') { redo(); e.preventDefault(); }
       if (e.ctrlKey && e.key === 'g') { groupSelected(); e.preventDefault(); }
@@ -406,7 +418,21 @@ const App = () => {
       }
     };
 
+    const handleKeyUp = (e) => {
+      if (e.code === 'Space' && isSpacePanRef.current) {
+        isSpacePanRef.current = false;
+        if (isPanning) {
+          isPanning = false;
+          canvas.selection = true;
+          canvas.upperCanvasEl.style.cursor = activeToolRef.current === 'pan' ? 'grab' : '';
+        } else {
+          canvas.upperCanvasEl.style.cursor = activeToolRef.current === 'pan' ? 'grab' : '';
+        }
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
     saveHistory();
 
     return () => {
@@ -414,7 +440,10 @@ const App = () => {
         fabricCanvas.current.dispose();
         fabricCanvas.current = null;
       }
+      isSpacePanRef.current = false;
+      canvas.upperCanvasEl.style.cursor = '';
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
     };
   }, []);
 
@@ -969,7 +998,7 @@ const App = () => {
       <div className="sidebar-logo"><Sparkles size={28} color="var(--accent)" /></div>
       <button className={`tool-btn ${activeTool === 'select' ? 'active' : ''}`} onClick={() => setActiveTool('select')} title="Selection (V)"><MousePointer2 size={22} /></button>
       <button className={`tool-btn ${activeTool === 'mark' ? 'active' : ''}`} onClick={() => setActiveTool('mark')} title="Mark (M)"><Target size={22} /></button>
-      <button className={`tool-btn ${activeTool === 'pan' ? 'active' : ''}`} onClick={() => setActiveTool('pan')} title="Pan (H)"><Move size={22} /></button>
+      <button className={`tool-btn ${activeTool === 'pan' ? 'active' : ''}`} onClick={() => setActiveTool('pan')} title="Pan (Space)"><Hand size={22} /></button>
       <div className="sidebar-divider" />
       <button className={`tool-btn ${showAiInput ? 'active' : ''}`} onClick={() => setShowAiInput(!showAiInput)} title="Magic Generate"><Sparkles size={22} /></button>
       <button className="tool-btn" onClick={addRect}><Square size={22} /></button>
@@ -1030,7 +1059,7 @@ const App = () => {
       {/* Main Artboard */}
       <main
         ref={canvasContainerRef}
-        className={`artboard ${!showGrid ? 'no-grid' : ''} ${isDragging ? 'dragging' : ''}`}
+        className={`artboard ${!showGrid ? 'no-grid' : ''} ${isDragging ? 'dragging' : ''} ${activeTool === 'pan' ? 'pan-tool' : ''}`}
         onDragOver={(e) => {
           e.preventDefault();
           e.stopPropagation();

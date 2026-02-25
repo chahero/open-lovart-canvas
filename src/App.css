@@ -187,6 +187,10 @@ body {
   outline-offset: -12px;
 }
 
+.artboard.pan-tool {
+  cursor: grab;
+}
+
 .canvas-shadow {
   position: relative;
   box-shadow: 0 50px 100px -20px rgba(0, 0, 0, 0.7);
