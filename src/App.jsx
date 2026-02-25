@@ -458,6 +458,76 @@ const App = () => {
     saveHistory();
   };
 
+  const resetZoom = () => {
+    const canvas = fabricCanvas.current;
+    if (!canvas) return;
+
+    const baseTransform = [
+      1,
+      0,
+      0,
+      1,
+      (canvas.width - WORLD_CANVAS_WIDTH) / 2,
+      (canvas.height - WORLD_CANVAS_HEIGHT) / 2,
+    ];
+
+    canvas.setViewportTransform(baseTransform);
+    setZoom(1);
+    canvas.requestRenderAll();
+  };
+
+  const fitCanvas = () => {
+    const canvas = fabricCanvas.current;
+    if (!canvas) return;
+
+    const viewportWidth = canvas.width || 1;
+    const viewportHeight = canvas.height || 1;
+    const scaleX = viewportWidth / WORLD_CANVAS_WIDTH;
+    const scaleY = viewportHeight / WORLD_CANVAS_HEIGHT;
+    const fitScale = Math.max(0.05, Math.min(1, Math.min(scaleX, scaleY)));
+    const panX = (viewportWidth - WORLD_CANVAS_WIDTH * fitScale) / 2;
+    const panY = (viewportHeight - WORLD_CANVAS_HEIGHT * fitScale) / 2;
+
+    canvas.setViewportTransform([fitScale, 0, 0, fitScale, panX, panY]);
+    setZoom(fitScale);
+    canvas.requestRenderAll();
+  };
+
+  const fitSelection = () => {
+    const canvas = fabricCanvas.current;
+    if (!canvas) return;
+
+    const activeObjects = canvas.getActiveObjects();
+    if (!activeObjects || activeObjects.length === 0) {
+      fitCanvas();
+      return;
+    }
+
+    const viewportWidth = canvas.width || 1;
+    const viewportHeight = canvas.height || 1;
+    const bounds = canvas.getActiveObject()?.getBoundingRect(true);
+    if (!bounds) {
+      fitCanvas();
+      return;
+    }
+
+    const margin = 64;
+    const paddingX = 0;
+    const paddingY = 0;
+    const effectiveTargetW = Math.max(1, viewportWidth - margin * 2 - paddingX);
+    const effectiveTargetH = Math.max(1, viewportHeight - margin * 2 - paddingY);
+    const scaleX = effectiveTargetW / Math.max(1, bounds.width);
+    const scaleY = effectiveTargetH / Math.max(1, bounds.height);
+    const fitScale = Math.max(0.05, Math.min(15, Math.min(scaleX, scaleY)));
+
+    const panX = margin - bounds.left * fitScale;
+    const panY = margin - bounds.top * fitScale;
+
+    canvas.setViewportTransform([fitScale, 0, 0, fitScale, panX, panY]);
+    setZoom(fitScale);
+    canvas.requestRenderAll();
+  };
+
   const addRect = () => {
     const canvas = fabricCanvas.current;
     const rect = new fabric.Rect({
@@ -947,7 +1017,6 @@ const App = () => {
         <button className="action-tag" onClick={ungroupSelected}><Ungroup size={14} /> Ungroup</button>
       </div>
       <div className="topbar-right">
-        <div className="zoom-info"><Search size={14} /> {Math.round(zoom * 100)}%</div>
         <button className="primary-btn"><Download size={16} /> Export</button>
       </div>
     </header>
@@ -1172,6 +1241,26 @@ const App = () => {
         <span>OPEN LOVART CANVAS v0.2</span>
         <span>{fabricCanvas.current?.width}x{fabricCanvas.current?.height}</span>
         <span>Zoom: {Math.round(zoom * 100)}%</span>
+        <button
+          className="action-tag footer-action-btn"
+          onClick={resetZoom}
+          disabled={zoom === 1}
+        >
+          <Search size={12} /> Reset
+        </button>
+        <button
+          className="action-tag footer-action-btn"
+          onClick={fitCanvas}
+        >
+          <Maximize size={12} /> Fit
+        </button>
+        <button
+          className="action-tag footer-action-btn"
+          onClick={fitSelection}
+          disabled={!fabricCanvas.current || fabricCanvas.current.getActiveObjects().length === 0}
+        >
+          <Search size={12} /> Fit Selection
+        </button>
       </footer>
 
       {/* Confirmation Modal */}

@@ -729,6 +729,28 @@ input[type="color"]::-webkit-color-swatch {
   font-weight: 600;
 }
 
+.footer-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  border-radius: 999px;
+  padding: 4px 10px;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.footer-action-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.footer-action-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* Confirmation Modal */
 .modal-overlay {
   position: fixed;
