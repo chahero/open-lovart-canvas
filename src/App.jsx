@@ -996,9 +996,9 @@ const App = () => {
   const Sidebar = () => (
     <aside className="sidebar">
       <div className="sidebar-logo"><Sparkles size={28} color="var(--accent)" /></div>
+      <button className={`tool-btn ${activeTool === 'pan' ? 'active' : ''}`} onClick={() => setActiveTool('pan')} title="Hand (Space)"><Hand size={22} /></button>
       <button className={`tool-btn ${activeTool === 'select' ? 'active' : ''}`} onClick={() => setActiveTool('select')} title="Selection (V)"><MousePointer2 size={22} /></button>
       <button className={`tool-btn ${activeTool === 'mark' ? 'active' : ''}`} onClick={() => setActiveTool('mark')} title="Mark (M)"><Target size={22} /></button>
-      <button className={`tool-btn ${activeTool === 'pan' ? 'active' : ''}`} onClick={() => setActiveTool('pan')} title="Pan (Space)"><Hand size={22} /></button>
       <div className="sidebar-divider" />
       <button className={`tool-btn ${showAiInput ? 'active' : ''}`} onClick={() => setShowAiInput(!showAiInput)} title="Magic Generate"><Sparkles size={22} /></button>
       <button className="tool-btn" onClick={addRect}><Square size={22} /></button>
