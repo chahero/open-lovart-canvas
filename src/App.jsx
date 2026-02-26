@@ -158,7 +158,7 @@ const App = () => {
     }
 
     const canvas = new fabric.Canvas(canvasRef.current, {
-      backgroundColor: '#ffffff',
+      backgroundColor: 'transparent',
       width: canvasContainerRef.current?.clientWidth || 900,
       height: canvasContainerRef.current?.clientHeight || 650,
       preserveObjectStacking: true,
@@ -182,8 +182,8 @@ const App = () => {
       width: WORLD_CANVAS_WIDTH,
       height: WORLD_CANVAS_HEIGHT,
       fill: 'rgba(255,255,255,0)',
-      stroke: '#252a33',
-      strokeWidth: 2,
+      stroke: 'rgba(148,163,184,0.32)',
+      strokeWidth: 1,
       selectable: false,
       evented: false,
       id: 'world-bounds',
@@ -192,7 +192,7 @@ const App = () => {
     for (let i = 1; i < WORLD_CANVAS_WIDTH / worldGridLine; i += 1) {
       guideLines.push(
         new fabric.Line([i * worldGridLine, 0, i * worldGridLine, WORLD_CANVAS_HEIGHT], {
-          stroke: 'rgba(42,46,55,0.25)',
+          stroke: 'rgba(148,163,184,0.16)',
           strokeWidth: 1,
           selectable: false,
           evented: false,
@@ -203,7 +203,7 @@ const App = () => {
     for (let i = 1; i < WORLD_CANVAS_HEIGHT / worldGridLine; i += 1) {
       guideLines.push(
         new fabric.Line([0, i * worldGridLine, WORLD_CANVAS_WIDTH, i * worldGridLine], {
-          stroke: 'rgba(42,46,55,0.25)',
+          stroke: 'rgba(148,163,184,0.16)',
           strokeWidth: 1,
           selectable: false,
           evented: false,
