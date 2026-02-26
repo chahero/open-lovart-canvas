@@ -569,25 +569,51 @@ const App = () => {
 
   const addRect = () => {
     const canvas = fabricCanvas.current;
+    if (!canvas) return;
     const rect = new fabric.Rect({
       width: 150, height: 150, rx: 12, ry: 12,
       fill: 'rgba(59, 130, 246, 0.5)', stroke: '#3b82f6', strokeWidth: 2
     });
     canvas.add(rect);
-    canvas.centerObject(rect);
+    const vpt = canvas.viewportTransform || [1, 0, 0, 1, 0, 0];
+    const zoomX = vpt[0] || 1;
+    const zoomY = vpt[3] || zoomX;
+    const viewportCenterX = (canvas.getWidth() || 0) / 2;
+    const viewportCenterY = (canvas.getHeight() || 0) / 2;
+    const sceneX = (viewportCenterX - vpt[4]) / zoomX;
+    const sceneY = (viewportCenterY - vpt[5]) / zoomY;
+    rect.set({
+      left: sceneX - rect.getScaledWidth() / 2,
+      top: sceneY - rect.getScaledHeight() / 2,
+    });
+    rect.setCoords();
     canvas.setActiveObject(rect);
+    canvas.requestRenderAll();
     syncUI();
     saveHistory();
   };
 
   const addText = () => {
     const canvas = fabricCanvas.current;
+    if (!canvas) return;
     const text = new fabric.IText('New Text Layer', {
       fontFamily: 'Inter', fontSize: 32, fill: '#18181b'
     });
     canvas.add(text);
-    canvas.centerObject(text);
+    const vpt = canvas.viewportTransform || [1, 0, 0, 1, 0, 0];
+    const zoomX = vpt[0] || 1;
+    const zoomY = vpt[3] || zoomX;
+    const viewportCenterX = (canvas.getWidth() || 0) / 2;
+    const viewportCenterY = (canvas.getHeight() || 0) / 2;
+    const sceneX = (viewportCenterX - vpt[4]) / zoomX;
+    const sceneY = (viewportCenterY - vpt[5]) / zoomY;
+    text.set({
+      left: sceneX - text.getScaledWidth() / 2,
+      top: sceneY - text.getScaledHeight() / 2,
+    });
+    text.setCoords();
     canvas.setActiveObject(text);
+    canvas.requestRenderAll();
     syncUI();
     saveHistory();
   };
