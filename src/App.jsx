@@ -592,18 +592,36 @@ const App = () => {
     saveHistory();
   };
 
-  const addImage = (file) => {
+  const addImage = (file, dropPoint = null) => {
     if (!file || !file.type.startsWith('image/')) return;
     const reader = new FileReader();
     reader.onload = async (f) => {
       try {
+        const canvas = fabricCanvas.current;
+        if (!canvas) return;
         const img = await fabric.FabricImage.fromURL(f.target.result);
         img.scaleToWidth(400);
         img.name = file.name;
-        fabricCanvas.current.add(img);
-        fabricCanvas.current.centerObject(img);
-        fabricCanvas.current.setActiveObject(img);
+        canvas.add(img);
+
+        if (dropPoint) {
+          const vpt = canvas.viewportTransform || [1, 0, 0, 1, 0, 0];
+          const zoomX = vpt[0] || 1;
+          const zoomY = vpt[3] || zoomX;
+          const sceneX = (dropPoint.x - vpt[4]) / zoomX;
+          const sceneY = (dropPoint.y - vpt[5]) / zoomY;
+          img.set({
+            left: sceneX - img.getScaledWidth() / 2,
+            top: sceneY - img.getScaledHeight() / 2,
+          });
+          img.setCoords();
+        } else {
+          canvas.centerObject(img);
+        }
+
+        canvas.setActiveObject(img);
         setActiveTool('select');
+        canvas.requestRenderAll();
         saveHistory();
       } catch (err) {
         console.error("Failed to load image:", err);
@@ -1100,7 +1118,33 @@ const App = () => {
           const files = e.dataTransfer.files;
           console.log('Files dropped:', files.length);
           if (files && files.length > 0) {
-            addImage(files[0]);
+            const imageFiles = Array.from(files).filter((file) => file.type.startsWith('image/'));
+            if (imageFiles.length === 0) return;
+
+            const canvasRect = fabricCanvas.current?.upperCanvasEl?.getBoundingClientRect();
+            const dropPoint = canvasRect
+              ? { x: e.clientX - canvasRect.left, y: e.clientY - canvasRect.top }
+              : null;
+
+            if (!dropPoint || imageFiles.length === 1) {
+              imageFiles.forEach((file) => addImage(file, dropPoint));
+              return;
+            }
+
+            const cols = Math.ceil(Math.sqrt(imageFiles.length));
+            const rows = Math.ceil(imageFiles.length / cols);
+            const spacing = 64;
+
+            imageFiles.forEach((file, idx) => {
+              const col = idx % cols;
+              const row = Math.floor(idx / cols);
+              const offsetX = (col - (cols - 1) / 2) * spacing;
+              const offsetY = (row - (rows - 1) / 2) * spacing;
+              addImage(file, {
+                x: dropPoint.x + offsetX,
+                y: dropPoint.y + offsetY,
+              });
+            });
           }
         }}>
         <div className="canvas-shadow">
