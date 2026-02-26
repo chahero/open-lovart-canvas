@@ -434,7 +434,7 @@ input:hover {
 select:focus,
 input:focus {
   border-color: var(--accent);
-  background: #000;
+  background: #ffffff;
 }
 
 /* Hide number spinners */

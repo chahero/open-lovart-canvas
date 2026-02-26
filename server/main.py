@@ -5,6 +5,7 @@ import json
 import httpx
 import base64
 import asyncio
+from typing import List, Optional
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -24,8 +25,94 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
 SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://192.168.0.67:11434")
-COMFYUI_URL = os.getenv("COMFYUI_URL", "http://localhost:8188")
+
+WORKFLOWS_DIR = os.path.join(BASE_DIR, "workflows")
+CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
+
+DEFAULT_OLLAMA_URL = os.getenv("OLLAMA_URL", "http://192.168.0.67:11434")
+DEFAULT_COMFYUI_URL = os.getenv("COMFYUI_URL", "http://localhost:8188")
+DEFAULT_WORKFLOW = os.getenv("GENERATE_WORKFLOW", "image_qwen_image_2512_with_2steps_lora.json")
+
+def parse_model_list(raw: str, fallback: List[str]) -> List[str]:
+    parsed = [m.strip() for m in (raw or "").split(",") if m.strip()]
+    return parsed or fallback
+
+DEFAULT_OCR_MODELS = parse_model_list(os.getenv("OCR_MODELS", ""), ["deepseek-ocr:3b"])
+DEFAULT_VISION_MODELS = parse_model_list(os.getenv("VISION_MODELS", ""), ["llama3.2-vision"])
+
+def list_available_workflows() -> List[str]:
+    if not os.path.isdir(WORKFLOWS_DIR):
+        return []
+    return sorted(
+        f for f in os.listdir(WORKFLOWS_DIR)
+        if f.lower().endswith(".json")
+    )
+
+def resolve_workflow_path(workflow_name: str) -> Optional[str]:
+    if not workflow_name:
+        return None
+    safe_name = os.path.basename(workflow_name)
+    path = os.path.join(WORKFLOWS_DIR, safe_name)
+    if os.path.exists(path):
+        return path
+    return None
+
+def read_persisted_config() -> dict:
+    if not os.path.exists(CONFIG_PATH):
+        return {}
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        return raw if isinstance(raw, dict) else {}
+    except Exception:
+        return {}
+
+def write_persisted_config():
+    payload = {
+        "ollama": OLLAMA_URL,
+        "comfyui": COMFYUI_URL,
+        "workflow": GENERATE_WORKFLOW,
+        "ocr_model": OCR_MODEL,
+        "vision_model": VISION_MODEL,
+    }
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+persisted_config = read_persisted_config()
+OLLAMA_URL = persisted_config.get("ollama", DEFAULT_OLLAMA_URL)
+COMFYUI_URL = persisted_config.get("comfyui", DEFAULT_COMFYUI_URL)
+
+workflow_options = list_available_workflows()
+GENERATE_WORKFLOW = os.path.basename(persisted_config.get("workflow", DEFAULT_WORKFLOW))
+if workflow_options:
+    if GENERATE_WORKFLOW not in workflow_options:
+        GENERATE_WORKFLOW = workflow_options[0]
+else:
+    GENERATE_WORKFLOW = ""
+
+OCR_MODEL = persisted_config.get("ocr_model", DEFAULT_OCR_MODELS[0])
+if OCR_MODEL not in DEFAULT_OCR_MODELS:
+    OCR_MODEL = DEFAULT_OCR_MODELS[0]
+
+VISION_MODEL = persisted_config.get("vision_model", DEFAULT_VISION_MODELS[0])
+if VISION_MODEL not in DEFAULT_VISION_MODELS:
+    VISION_MODEL = DEFAULT_VISION_MODELS[0]
+
+def build_config_response() -> dict:
+    return {
+        "config": {
+            "ollama": OLLAMA_URL,
+            "comfyui": COMFYUI_URL,
+            "workflow": GENERATE_WORKFLOW,
+            "ocr_model": OCR_MODEL,
+            "vision_model": VISION_MODEL,
+        },
+        "options": {
+            "workflows": list_available_workflows(),
+            "ocr_models": DEFAULT_OCR_MODELS,
+            "vision_models": DEFAULT_VISION_MODELS,
+        },
+    }
 
 # Initialize rembg session for persistent model loading
 try:
@@ -109,18 +196,40 @@ async def call_comfyui_workflow(workflow: dict, timeout_sec: int = 180):
 async def root():
     return {
         "status": "online",
-        "config": {
-            "ollama": OLLAMA_URL,
-            "comfyui": COMFYUI_URL
-        }
+        **build_config_response()
     }
+
+@app.get("/config")
+async def get_config():
+    return build_config_response()
 
 @app.put("/config/update")
 async def update_config(data: dict):
-    global OLLAMA_URL, COMFYUI_URL
-    if "ollama" in data: OLLAMA_URL = data["ollama"]
-    if "comfyui" in data: COMFYUI_URL = data["comfyui"]
-    return {"status": "success", "new_config": {"ollama": OLLAMA_URL, "comfyui": COMFYUI_URL}}
+    global OLLAMA_URL, COMFYUI_URL, GENERATE_WORKFLOW, OCR_MODEL, VISION_MODEL
+
+    workflows = list_available_workflows()
+
+    ollama = str(data.get("ollama", OLLAMA_URL)).strip()
+    comfyui = str(data.get("comfyui", COMFYUI_URL)).strip()
+    workflow = os.path.basename(str(data.get("workflow", GENERATE_WORKFLOW)).strip())
+    ocr_model = str(data.get("ocr_model", data.get("ocrModel", OCR_MODEL))).strip()
+    vision_model = str(data.get("vision_model", data.get("visionModel", VISION_MODEL))).strip()
+
+    if workflows and workflow not in workflows:
+        raise HTTPException(status_code=400, detail="Invalid workflow selection.")
+    if ocr_model not in DEFAULT_OCR_MODELS:
+        raise HTTPException(status_code=400, detail="Invalid OCR model selection.")
+    if vision_model not in DEFAULT_VISION_MODELS:
+        raise HTTPException(status_code=400, detail="Invalid vision model selection.")
+
+    OLLAMA_URL = ollama or OLLAMA_URL
+    COMFYUI_URL = comfyui or COMFYUI_URL
+    GENERATE_WORKFLOW = workflow if workflows else ""
+    OCR_MODEL = ocr_model
+    VISION_MODEL = vision_model
+    write_persisted_config()
+
+    return {"status": "success", **build_config_response()}
 
 @app.post("/remove-bg")
 async def remove_background(file: UploadFile = File(...)):
@@ -262,7 +371,7 @@ async def extract_text(file: UploadFile = File(...)):
         
         # Using DeepSeek-OCR official recommended prompt
         payload = {
-            "model": "deepseek-ocr:3b",
+            "model": OCR_MODEL,
             "prompt": "Extract the text in the image.",
             "images": [img_b64],
             "stream": False,
@@ -323,7 +432,7 @@ async def analyze_vision(file: UploadFile = File(...), prompt: str = Form(...)):
     img_b64 = base64.b64encode(img_data).decode('utf-8')
     
     payload = {
-        "model": "llama3.2-vision",
+        "model": VISION_MODEL,
         "messages": [
             {
                 "role": "user",
@@ -344,9 +453,9 @@ async def generate_image(prompt: str = Form(...)):
     Generate Image using ComfyUI and Qwen workflow
     """
     try:
-        workflow_path = os.path.join("server", "workflows", "image_qwen_image_2512_with_2steps_lora.json")
-        if not os.path.exists(workflow_path):
-            workflow_path = os.path.join("workflows", "image_qwen_image_2512_with_2steps_lora.json")
+        workflow_path = resolve_workflow_path(GENERATE_WORKFLOW)
+        if not workflow_path:
+            raise HTTPException(status_code=500, detail="Generate workflow is not configured.")
             
         with open(workflow_path, "r", encoding="utf-8") as f:
             workflow = json.load(f)

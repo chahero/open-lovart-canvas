@@ -42,6 +42,21 @@ const App = () => {
   const [segmentText, setSegmentText] = useState('');
   const [segmentTarget, setSegmentTarget] = useState(null);
   const [aiPrompt, setAiPrompt] = useState('');
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [isSettingsLoading, setIsSettingsLoading] = useState(false);
+  const [isSettingsSaving, setIsSettingsSaving] = useState(false);
+  const [settingsOptions, setSettingsOptions] = useState({
+    workflows: [],
+    ocrModels: [],
+    visionModels: [],
+  });
+  const [settingsDraft, setSettingsDraft] = useState({
+    ollama: '',
+    comfyui: '',
+    workflow: '',
+    ocrModel: '',
+    visionModel: '',
+  });
 
   // --- Refs ---
   const canvasRef = useRef(null);
@@ -157,6 +172,106 @@ const App = () => {
 
     return new fabric.Point(sceneX, sceneY);
   }, []);
+
+  const loadServerSettings = useCallback(async () => {
+    setIsSettingsLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/config`);
+      let data = null;
+
+      if (response.status === 404) {
+        // Backward compatibility: older backend may not have /config
+        const legacyResponse = await fetch(`${API_BASE_URL}/`);
+        if (!legacyResponse.ok) throw new Error('Failed to load server config');
+        const legacy = await legacyResponse.json();
+        const legacyConfig = legacy.config || {};
+        data = {
+          config: {
+            ollama: legacyConfig.ollama || '',
+            comfyui: legacyConfig.comfyui || '',
+            workflow: '',
+            ocr_model: '',
+            vision_model: '',
+          },
+          options: {
+            workflows: [],
+            ocr_models: [],
+            vision_models: [],
+          },
+        };
+      } else {
+        if (!response.ok) throw new Error('Failed to load server config');
+        data = await response.json();
+      }
+
+      const config = data.config || {};
+      const options = data.options || {};
+      setSettingsDraft({
+        ollama: config.ollama || '',
+        comfyui: config.comfyui || '',
+        workflow: config.workflow || '',
+        ocrModel: config.ocr_model || '',
+        visionModel: config.vision_model || '',
+      });
+      setSettingsOptions({
+        workflows: options.workflows || [],
+        ocrModels: options.ocr_models || [],
+        visionModels: options.vision_models || [],
+      });
+    } catch (err) {
+      console.error(err);
+      // Avoid blocking popup on first-load failures.
+    } finally {
+      setIsSettingsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (showSettingsModal) loadServerSettings();
+  }, [showSettingsModal, loadServerSettings]);
+
+  const saveServerSettings = async () => {
+    setIsSettingsSaving(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/config/update`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ollama: settingsDraft.ollama,
+          comfyui: settingsDraft.comfyui,
+          workflow: settingsDraft.workflow,
+          ocr_model: settingsDraft.ocrModel,
+          vision_model: settingsDraft.visionModel,
+        }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Failed to save settings');
+      }
+
+      const data = await response.json();
+      const config = data.config || {};
+      const options = data.options || {};
+      setSettingsDraft({
+        ollama: config.ollama || '',
+        comfyui: config.comfyui || '',
+        workflow: config.workflow || '',
+        ocrModel: config.ocr_model || '',
+        visionModel: config.vision_model || '',
+      });
+      setSettingsOptions({
+        workflows: options.workflows || [],
+        ocrModels: options.ocr_models || [],
+        visionModels: options.vision_models || [],
+      });
+      setShowSettingsModal(false);
+    } catch (err) {
+      console.error(err);
+      alert('Settings save failed: ' + err.message);
+    } finally {
+      setIsSettingsSaving(false);
+    }
+  };
 
   // --- History (Undo/Redo) Logic ---
   const saveHistory = useCallback(() => {
@@ -1106,7 +1221,7 @@ const App = () => {
       <div style={{ flexGrow: 1 }} />
       <label className="tool-btn" title="Image"><ImageIcon size={22} /><input type="file" hidden accept="image/*" onChange={(e) => addImage(e.target.files[0])} /></label>
       <button className="tool-btn" onClick={() => setShowGrid(!showGrid)}><Grid size={22} color={showGrid ? "var(--accent)" : "currentColor"} /></button>
-      <button className="tool-btn"><Settings size={22} /></button>
+      <button className="tool-btn" onClick={() => setShowSettingsModal(true)}><Settings size={22} /></button>
     </aside>
   );
 
@@ -1382,6 +1497,95 @@ const App = () => {
           </div>
         </div>
       </aside>
+
+      {showSettingsModal && (
+        <div className="modal-overlay" onClick={() => !isSettingsSaving && setShowSettingsModal(false)}>
+          <div className="confirm-modal" style={{ maxWidth: 560, alignItems: 'stretch' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-text" style={{ textAlign: 'left' }}>
+              <h3>Server Settings</h3>
+              <p>Generate workflow, OCR model, vision model, and server URLs.</p>
+            </div>
+
+            {isSettingsLoading ? (
+              <div className="no-selection-msg">Loading settings...</div>
+            ) : (
+              <div className="props-body">
+                <div className="prop-input-group">
+                  <label>ComfyUI URL</label>
+                  <input
+                    type="text"
+                    value={settingsDraft.comfyui}
+                    onChange={(e) => setSettingsDraft((prev) => ({ ...prev, comfyui: e.target.value }))}
+                    disabled={isSettingsSaving}
+                  />
+                </div>
+                <div className="prop-input-group">
+                  <label>Ollama URL</label>
+                  <input
+                    type="text"
+                    value={settingsDraft.ollama}
+                    onChange={(e) => setSettingsDraft((prev) => ({ ...prev, ollama: e.target.value }))}
+                    disabled={isSettingsSaving}
+                  />
+                </div>
+                <div className="prop-input-group">
+                  <label>Generate Workflow</label>
+                  <select
+                    value={settingsDraft.workflow}
+                    onChange={(e) => setSettingsDraft((prev) => ({ ...prev, workflow: e.target.value }))}
+                    disabled={isSettingsSaving}
+                  >
+                    {settingsOptions.workflows.map((wf) => (
+                      <option key={wf} value={wf}>{wf}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="prop-input-group">
+                  <label>OCR Model</label>
+                  <select
+                    value={settingsDraft.ocrModel}
+                    onChange={(e) => setSettingsDraft((prev) => ({ ...prev, ocrModel: e.target.value }))}
+                    disabled={isSettingsSaving}
+                  >
+                    {settingsOptions.ocrModels.map((model) => (
+                      <option key={model} value={model}>{model}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="prop-input-group">
+                  <label>Vision Model</label>
+                  <select
+                    value={settingsDraft.visionModel}
+                    onChange={(e) => setSettingsDraft((prev) => ({ ...prev, visionModel: e.target.value }))}
+                    disabled={isSettingsSaving}
+                  >
+                    {settingsOptions.visionModels.map((model) => (
+                      <option key={model} value={model}>{model}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            <div className="modal-actions">
+              <button
+                className="modal-btn cancel"
+                onClick={() => setShowSettingsModal(false)}
+                disabled={isSettingsSaving}
+              >
+                Cancel
+              </button>
+              <button
+                className="modal-btn confirm"
+                onClick={saveServerSettings}
+                disabled={isSettingsSaving || isSettingsLoading}
+              >
+                {isSettingsSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Context Popup */}
       {
