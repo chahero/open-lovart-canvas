@@ -180,6 +180,7 @@ const App = () => {
       height: canvasContainerRef.current?.clientHeight || 650,
       preserveObjectStacking: true,
       stopContextMenu: true,
+      skipOffscreen: false,
     });
 
     fabricCanvas.current = canvas;
@@ -279,6 +280,8 @@ const App = () => {
     const handleMouseUp = (opt) => {
       if (isPanning) {
         isPanning = false;
+        canvas.setViewportTransform(canvas.viewportTransform);
+        syncArtboardPattern();
         canvas.upperCanvasEl.style.cursor = isSpacePanRef.current || activeToolRef.current === 'pan' ? 'grab' : '';
       }
       const active = canvas.getActiveObject();
@@ -431,6 +434,8 @@ const App = () => {
         isSpacePanRef.current = false;
         if (isPanning) {
           isPanning = false;
+          canvas.setViewportTransform(canvas.viewportTransform);
+          syncArtboardPattern();
           canvas.selection = true;
           canvas.upperCanvasEl.style.cursor = activeToolRef.current === 'pan' ? 'grab' : '';
         } else {
