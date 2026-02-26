@@ -586,6 +586,7 @@ input[type="color"]::-webkit-color-swatch {
 
 .l-name {
   font-size: 13px;
+  color: #0f172a;
   flex-grow: 1;
   overflow: hidden;
   text-overflow: ellipsis;
