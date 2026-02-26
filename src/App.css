@@ -186,12 +186,20 @@ body {
 
 /* Main Artboard */
 .artboard {
+  --dot-gap: 36px;
+  --dot-size: 2px;
+  --dot-offset-x: 0px;
+  --dot-offset-y: 0px;
   position: absolute;
   inset: 0;
   z-index: 1;
   background-color: #f7f8fb;
-  background-image: radial-gradient(rgba(100, 116, 139, 0.28) 1px, transparent 1px);
-  background-size: 30px 30px;
+  background-image: radial-gradient(
+    rgba(100, 116, 139, 0.5) var(--dot-size),
+    transparent var(--dot-size)
+  );
+  background-size: var(--dot-gap) var(--dot-gap);
+  background-position: var(--dot-offset-x) var(--dot-offset-y);
   overflow: hidden;
   display: flex;
   justify-content: center;

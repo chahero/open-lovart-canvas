@@ -103,6 +103,22 @@ const App = () => {
     }
   }, []);
 
+  const syncArtboardPattern = useCallback(() => {
+    const canvas = fabricCanvas.current;
+    const artboard = canvasContainerRef.current;
+    if (!canvas || !artboard || !canvas.viewportTransform) return;
+
+    const vpt = canvas.viewportTransform;
+    const scale = vpt[0] || 1;
+    const dotGap = Math.max(18, 36 * scale);
+    const dotSize = Math.max(1.25, 2 * scale);
+
+    artboard.style.setProperty('--dot-gap', `${dotGap}px`);
+    artboard.style.setProperty('--dot-size', `${dotSize}px`);
+    artboard.style.setProperty('--dot-offset-x', `${vpt[4]}px`);
+    artboard.style.setProperty('--dot-offset-y', `${vpt[5]}px`);
+  }, []);
+
   // --- History (Undo/Redo) Logic ---
   const saveHistory = useCallback(() => {
     if (!fabricCanvas.current || isSavingHistory.current) return;
@@ -174,48 +190,21 @@ const App = () => {
       (canvas.width - WORLD_CANVAS_WIDTH) / 2,
       (canvas.height - WORLD_CANVAS_HEIGHT) / 2,
     ]);
+    syncArtboardPattern();
 
-    const worldGridLine = 100;
     const worldBounds = new fabric.Rect({
       left: 0,
       top: 0,
       width: WORLD_CANVAS_WIDTH,
       height: WORLD_CANVAS_HEIGHT,
       fill: 'rgba(255,255,255,0)',
-      stroke: 'rgba(148,163,184,0.32)',
-      strokeWidth: 1,
+      stroke: 'transparent',
+      strokeWidth: 0,
       selectable: false,
       evented: false,
       id: 'world-bounds',
     });
-    const guideLines = [];
-    for (let i = 1; i < WORLD_CANVAS_WIDTH / worldGridLine; i += 1) {
-      guideLines.push(
-        new fabric.Line([i * worldGridLine, 0, i * worldGridLine, WORLD_CANVAS_HEIGHT], {
-          stroke: 'rgba(148,163,184,0.16)',
-          strokeWidth: 1,
-          selectable: false,
-          evented: false,
-          id: 'world-bounds',
-        })
-      );
-    }
-    for (let i = 1; i < WORLD_CANVAS_HEIGHT / worldGridLine; i += 1) {
-      guideLines.push(
-        new fabric.Line([0, i * worldGridLine, WORLD_CANVAS_WIDTH, i * worldGridLine], {
-          stroke: 'rgba(148,163,184,0.16)',
-          strokeWidth: 1,
-          selectable: false,
-          evented: false,
-          id: 'world-bounds',
-        })
-      );
-    }
     canvas.add(worldBounds);
-    guideLines.forEach((line) => {
-      canvas.add(line);
-      canvas.sendObjectToBack(line);
-    });
     canvas.sendObjectToBack(worldBounds);
 
     // --- Snapping Logic ---
@@ -259,6 +248,7 @@ const App = () => {
       if (zoomLevel < 0.1) zoomLevel = 0.1;
       canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoomLevel);
       setZoom(zoomLevel);
+      syncArtboardPattern();
       opt.e.preventDefault();
       opt.e.stopPropagation();
     });
@@ -388,6 +378,7 @@ const App = () => {
         vpt[4] += e.clientX - canvas.lastPosX;
         vpt[5] += e.clientY - canvas.lastPosY;
         canvas.requestRenderAll();
+        syncArtboardPattern();
         canvas.lastPosX = e.clientX;
         canvas.lastPosY = e.clientY;
       }
@@ -503,6 +494,7 @@ const App = () => {
     canvas.setViewportTransform(baseTransform);
     setZoom(1);
     canvas.requestRenderAll();
+    syncArtboardPattern();
   };
 
   const fitCanvas = () => {
@@ -520,6 +512,7 @@ const App = () => {
     canvas.setViewportTransform([fitScale, 0, 0, fitScale, panX, panY]);
     setZoom(fitScale);
     canvas.requestRenderAll();
+    syncArtboardPattern();
   };
 
   const fitSelection = () => {
@@ -555,6 +548,7 @@ const App = () => {
     canvas.setViewportTransform([fitScale, 0, 0, fitScale, panX, panY]);
     setZoom(fitScale);
     canvas.requestRenderAll();
+    syncArtboardPattern();
   };
 
   const addRect = () => {
