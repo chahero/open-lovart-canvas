@@ -432,9 +432,11 @@ input:hover {
 }
 
 select:focus,
-input:focus {
+input[type="number"]:focus,
+input[type="text"]:not(.ai-prompt-input):focus {
   border-color: var(--accent);
   background: #ffffff;
+  color: #0f172a;
 }
 
 /* Hide number spinners */
@@ -734,6 +736,11 @@ input[type="color"]::-webkit-color-swatch {
   color: white;
   font-size: 15px;
   outline: none;
+}
+
+.ai-prompt-input:focus {
+  background: transparent;
+  color: white;
 }
 
 .ai-gen-btn {
