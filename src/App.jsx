@@ -657,10 +657,7 @@ const App = () => {
           const zoomY = vpt[3] || zoomX;
           const sceneX = (dropPoint.x - vpt[4]) / zoomX;
           const sceneY = (dropPoint.y - vpt[5]) / zoomY;
-          img.set({
-            left: sceneX - img.getScaledWidth() / 2,
-            top: sceneY - img.getScaledHeight() / 2,
-          });
+          img.setPositionByOrigin(new fabric.Point(sceneX, sceneY), 'center', 'center');
           img.setCoords();
         } else {
           const vpt = canvas.viewportTransform || [1, 0, 0, 1, 0, 0];
@@ -670,10 +667,7 @@ const App = () => {
           const viewportCenterY = (canvas.getHeight() || 0) / 2;
           const sceneX = (viewportCenterX - vpt[4]) / zoomX;
           const sceneY = (viewportCenterY - vpt[5]) / zoomY;
-          img.set({
-            left: sceneX - img.getScaledWidth() / 2,
-            top: sceneY - img.getScaledHeight() / 2,
-          });
+          img.setPositionByOrigin(new fabric.Point(sceneX, sceneY), 'center', 'center');
           img.setCoords();
         }
 
