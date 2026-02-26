@@ -41,6 +41,7 @@ const App = () => {
   const [showSegmentModal, setShowSegmentModal] = useState(false);
   const [segmentText, setSegmentText] = useState('');
   const [segmentTarget, setSegmentTarget] = useState(null);
+  const [aiPrompt, setAiPrompt] = useState('');
 
   // --- Refs ---
   const canvasRef = useRef(null);
@@ -766,9 +767,25 @@ const App = () => {
 
       const img = await fabric.FabricImage.fromURL(url);
       img.scaleToWidth(512);
-      fabricCanvas.current.add(img);
-      fabricCanvas.current.centerObject(img);
-      fabricCanvas.current.setActiveObject(img);
+      const canvas = fabricCanvas.current;
+      canvas.add(img);
+
+      const vpt = canvas.viewportTransform || [1, 0, 0, 1, 0, 0];
+      const zoomX = vpt[0] || 1;
+      const zoomY = vpt[3] || zoomX;
+      const viewportCenterX = (canvas.getWidth() || 0) / 2;
+      const viewportCenterY = (canvas.getHeight() || 0) / 2;
+      const sceneX = (viewportCenterX - vpt[4]) / zoomX;
+      const sceneY = (viewportCenterY - vpt[5]) / zoomY;
+
+      img.set({
+        left: sceneX - img.getScaledWidth() / 2,
+        top: sceneY - img.getScaledHeight() / 2,
+      });
+      img.setCoords();
+
+      canvas.setActiveObject(img);
+      canvas.requestRenderAll();
 
       syncUI();
       saveHistory();

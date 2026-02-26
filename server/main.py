@@ -4,7 +4,7 @@ import uuid
 import json
 import httpx
 import base64
-import time
+import asyncio
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -19,7 +19,8 @@ import re
 from scipy.ndimage import zoom
 
 # Load configurations
-load_dotenv()
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
 SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
@@ -55,33 +56,54 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-async def call_comfyui_workflow(workflow: dict):
+async def call_comfyui_workflow(workflow: dict, timeout_sec: int = 180):
     """
     Helper to send a workflow to ComfyUI and wait for results (simplified)
     """
     client_id = str(uuid.uuid4())
-    async with httpx.AsyncClient() as client:
+    started_at = asyncio.get_running_loop().time()
+    async with httpx.AsyncClient(timeout=30.0) as client:
         # 1. Queue Prompt
         prompt_res = await client.post(
             f"{COMFYUI_URL}/prompt", 
             json={"prompt": workflow, "client_id": client_id}
         )
+        if prompt_res.status_code != 200:
+            raise HTTPException(status_code=502, detail=f"ComfyUI prompt failed: {prompt_res.text}")
         prompt_id = prompt_res.json().get("prompt_id")
+        if not prompt_id:
+            raise HTTPException(status_code=502, detail="ComfyUI did not return prompt_id.")
         
         # 2. Wait for completion (Polling - in a real app, use WebSockets)
         while True:
             history_res = await client.get(f"{COMFYUI_URL}/history/{prompt_id}")
+            if history_res.status_code != 200:
+                raise HTTPException(status_code=502, detail=f"ComfyUI history failed: {history_res.text}")
             history = history_res.json()
             if prompt_id in history:
                 # Get the image filename from history
                 outputs = history[prompt_id].get("outputs", {})
                 for node_id in outputs:
                     if "images" in outputs[node_id]:
-                        filename = outputs[node_id]["images"][0]["filename"]
+                        image_info = outputs[node_id]["images"][0]
+                        filename = image_info.get("filename")
+                        if not filename:
+                            continue
                         # 3. Fetch final image
-                        img_res = await client.get(f"{COMFYUI_URL}/view?filename={filename}")
+                        img_res = await client.get(
+                            f"{COMFYUI_URL}/view",
+                            params={
+                                "filename": filename,
+                                "subfolder": image_info.get("subfolder", ""),
+                                "type": image_info.get("type", "output"),
+                            },
+                        )
+                        if img_res.status_code != 200:
+                            raise HTTPException(status_code=502, detail=f"ComfyUI image fetch failed: {img_res.text}")
                         return img_res.content
-            time.sleep(0.5)
+            if asyncio.get_running_loop().time() - started_at > timeout_sec:
+                raise HTTPException(status_code=504, detail="ComfyUI generation timed out.")
+            await asyncio.sleep(0.5)
 
 @app.get("/")
 async def root():
