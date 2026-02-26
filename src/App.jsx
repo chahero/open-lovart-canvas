@@ -209,6 +209,17 @@ const App = () => {
     canvas.add(worldBounds);
     canvas.sendObjectToBack(worldBounds);
 
+    const stabilizeRasterObject = (obj) => {
+      if (!obj) return;
+      if (obj.type === 'FabricImage' || obj.type === 'image') {
+        obj.set({
+          objectCaching: false,
+          noScaleCache: true,
+        });
+        obj.dirty = true;
+      }
+    };
+
     // --- Snapping Logic ---
     const SNAP_THRESHOLD = 10;
     canvas.on('object:moving', (e) => {
@@ -233,7 +244,11 @@ const App = () => {
       if (Math.abs(obj.top + objHeight - canvasHeight) < SNAP_THRESHOLD) obj.set({ top: canvasHeight - objHeight });
     });
 
-    canvas.on('object:added', () => { if (!isSavingHistory.current) saveHistory(); syncUI(); });
+    canvas.on('object:added', (evt) => {
+      stabilizeRasterObject(evt?.target);
+      if (!isSavingHistory.current) saveHistory();
+      syncUI();
+    });
     canvas.on('object:removed', () => { if (!isSavingHistory.current) saveHistory(); syncUI(); });
     canvas.on('object:modified', () => { if (!isSavingHistory.current) saveHistory(); syncUI(); });
     canvas.on('object:scaling', syncUI);
