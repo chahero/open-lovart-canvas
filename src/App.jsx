@@ -1003,11 +1003,11 @@ const App = () => {
         scaleX: active.scaleX,
         scaleY: active.scaleY,
         originX: active.originX,
-        originY: active.originY
+        originY: active.originY,
+        name: `${active.name || 'Layer'} (OCR Text)`
       });
 
-      // 4. Hide original image and add text
-      active.set({ visible: false });
+      // 4. Keep original image visible and add text overlay
       canvas.add(textObj);
       canvas.setActiveObject(textObj);
 
