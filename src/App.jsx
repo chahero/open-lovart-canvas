@@ -120,6 +120,44 @@ const App = () => {
     artboard.style.setProperty('--dot-offset-y', `${vpt[5]}px`);
   }, []);
 
+  const getCreationCenterInScene = useCallback(() => {
+    const canvas = fabricCanvas.current;
+    const artboard = canvasContainerRef.current;
+    if (!canvas || !artboard) return new fabric.Point(0, 0);
+
+    const canvasW = canvas.getWidth() || 0;
+    const canvasH = canvas.getHeight() || 0;
+    const vpt = canvas.viewportTransform || [1, 0, 0, 1, 0, 0];
+    const zoomX = vpt[0] || 1;
+    const zoomY = vpt[3] || zoomX;
+
+    let visibleLeft = 0;
+    let visibleRight = canvasW;
+
+    const artboardRect = artboard.getBoundingClientRect();
+    const sidebarRect = document.querySelector('.sidebar')?.getBoundingClientRect();
+    const panelRect = document.querySelector('.control-panel')?.getBoundingClientRect();
+
+    if (sidebarRect) {
+      visibleLeft = Math.max(visibleLeft, sidebarRect.right - artboardRect.left + 12);
+    }
+    if (panelRect) {
+      visibleRight = Math.min(visibleRight, panelRect.left - artboardRect.left - 12);
+    }
+
+    if (visibleRight <= visibleLeft) {
+      visibleLeft = 0;
+      visibleRight = canvasW;
+    }
+
+    const viewportCenterX = (visibleLeft + visibleRight) / 2;
+    const viewportCenterY = canvasH / 2;
+    const sceneX = (viewportCenterX - vpt[4]) / zoomX;
+    const sceneY = (viewportCenterY - vpt[5]) / zoomY;
+
+    return new fabric.Point(sceneX, sceneY);
+  }, []);
+
   // --- History (Undo/Redo) Logic ---
   const saveHistory = useCallback(() => {
     if (!fabricCanvas.current || isSavingHistory.current) return;
@@ -596,17 +634,8 @@ const App = () => {
       fill: 'rgba(59, 130, 246, 0.5)', stroke: '#3b82f6', strokeWidth: 2
     });
     canvas.add(rect);
-    const vpt = canvas.viewportTransform || [1, 0, 0, 1, 0, 0];
-    const zoomX = vpt[0] || 1;
-    const zoomY = vpt[3] || zoomX;
-    const viewportCenterX = (canvas.getWidth() || 0) / 2;
-    const viewportCenterY = (canvas.getHeight() || 0) / 2;
-    const sceneX = (viewportCenterX - vpt[4]) / zoomX;
-    const sceneY = (viewportCenterY - vpt[5]) / zoomY;
-    rect.set({
-      left: sceneX - rect.getScaledWidth() / 2,
-      top: sceneY - rect.getScaledHeight() / 2,
-    });
+    const sceneCenter = getCreationCenterInScene();
+    rect.setPositionByOrigin(sceneCenter, 'center', 'center');
     rect.setCoords();
     canvas.setActiveObject(rect);
     canvas.requestRenderAll();
@@ -621,17 +650,8 @@ const App = () => {
       fontFamily: 'Inter', fontSize: 32, fill: '#18181b'
     });
     canvas.add(text);
-    const vpt = canvas.viewportTransform || [1, 0, 0, 1, 0, 0];
-    const zoomX = vpt[0] || 1;
-    const zoomY = vpt[3] || zoomX;
-    const viewportCenterX = (canvas.getWidth() || 0) / 2;
-    const viewportCenterY = (canvas.getHeight() || 0) / 2;
-    const sceneX = (viewportCenterX - vpt[4]) / zoomX;
-    const sceneY = (viewportCenterY - vpt[5]) / zoomY;
-    text.set({
-      left: sceneX - text.getScaledWidth() / 2,
-      top: sceneY - text.getScaledHeight() / 2,
-    });
+    const sceneCenter = getCreationCenterInScene();
+    text.setPositionByOrigin(sceneCenter, 'center', 'center');
     text.setCoords();
     canvas.setActiveObject(text);
     canvas.requestRenderAll();
@@ -660,14 +680,8 @@ const App = () => {
           img.setPositionByOrigin(new fabric.Point(sceneX, sceneY), 'center', 'center');
           img.setCoords();
         } else {
-          const vpt = canvas.viewportTransform || [1, 0, 0, 1, 0, 0];
-          const zoomX = vpt[0] || 1;
-          const zoomY = vpt[3] || zoomX;
-          const viewportCenterX = (canvas.getWidth() || 0) / 2;
-          const viewportCenterY = (canvas.getHeight() || 0) / 2;
-          const sceneX = (viewportCenterX - vpt[4]) / zoomX;
-          const sceneY = (viewportCenterY - vpt[5]) / zoomY;
-          img.setPositionByOrigin(new fabric.Point(sceneX, sceneY), 'center', 'center');
+          const sceneCenter = getCreationCenterInScene();
+          img.setPositionByOrigin(sceneCenter, 'center', 'center');
           img.setCoords();
         }
 
@@ -783,19 +797,8 @@ const App = () => {
       img.scaleToWidth(512);
       const canvas = fabricCanvas.current;
       canvas.add(img);
-
-      const vpt = canvas.viewportTransform || [1, 0, 0, 1, 0, 0];
-      const zoomX = vpt[0] || 1;
-      const zoomY = vpt[3] || zoomX;
-      const viewportCenterX = (canvas.getWidth() || 0) / 2;
-      const viewportCenterY = (canvas.getHeight() || 0) / 2;
-      const sceneX = (viewportCenterX - vpt[4]) / zoomX;
-      const sceneY = (viewportCenterY - vpt[5]) / zoomY;
-
-      img.set({
-        left: sceneX - img.getScaledWidth() / 2,
-        top: sceneY - img.getScaledHeight() / 2,
-      });
+      const sceneCenter = getCreationCenterInScene();
+      img.setPositionByOrigin(sceneCenter, 'center', 'center');
       img.setCoords();
 
       canvas.setActiveObject(img);
