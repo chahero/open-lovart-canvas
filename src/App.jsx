@@ -311,6 +311,22 @@ const App = () => {
     };
 
     const handleMouseDown = (opt) => {
+      const clickedCanvasObject = opt.target && opt.target.id !== 'world-bounds' && opt.target.id !== 'temp-prompt-box';
+      if (
+        clickedCanvasObject &&
+        opt.button !== 3 &&
+        !isSpacePanRef.current &&
+        activeToolRef.current !== 'select' &&
+        activeToolRef.current !== 'mark'
+      ) {
+        setActiveTool('select');
+        canvas.setActiveObject(opt.target);
+        canvas.requestRenderAll();
+        syncUI();
+        setContextMenu(null);
+        return;
+      }
+
       if (activeToolRef.current === 'pan' || isSpacePanRef.current) {
         isPanning = true;
         canvas.selection = false;
@@ -587,6 +603,7 @@ const App = () => {
         fabricCanvas.current.add(img);
         fabricCanvas.current.centerObject(img);
         fabricCanvas.current.setActiveObject(img);
+        setActiveTool('select');
         saveHistory();
       } catch (err) {
         console.error("Failed to load image:", err);
