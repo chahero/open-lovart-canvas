@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Plus, MousePointer2, Square, Type, Image as ImageIcon, Maximize,
-  Layers as LayersIcon, Settings, Download, Trash2, Eye, EyeOff,
+  Layers as LayersIcon, Settings, Download, Trash2, Eye, EyeOff, Eraser,
   MoreHorizontal, Sparkles, Scissors, Target, Edit3, RotateCcw,
   RotateCw, Undo2, Redo2, Grid, Search, Hand, AlignLeft, AlignCenter,
   AlignRight, AlignVerticalJustifyStart, AlignVerticalJustifyCenter,
@@ -42,6 +42,7 @@ const App = () => {
   const [segmentText, setSegmentText] = useState('');
   const [segmentTarget, setSegmentTarget] = useState(null);
   const [aiPrompt, setAiPrompt] = useState('');
+  const [eraserSize, setEraserSize] = useState(28);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [isSettingsLoading, setIsSettingsLoading] = useState(false);
   const [isSettingsSaving, setIsSettingsSaving] = useState(false);
@@ -67,10 +68,27 @@ const App = () => {
   const isSavingHistory = useRef(false);
   const dragCounter = useRef(0);
   const isSpacePanRef = useRef(false);
+  const eraserSizeRef = useRef(eraserSize);
 
   // --- Sync Refs ---
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
   useEffect(() => { marksRef.current = marks; }, [marks]);
+  useEffect(() => { eraserSizeRef.current = eraserSize; }, [eraserSize]);
+  useEffect(() => {
+    const canvas = fabricCanvas.current;
+    if (!canvas) return;
+    if (activeTool === 'eraser') {
+      canvas.selection = false;
+      canvas.upperCanvasEl.style.cursor = 'crosshair';
+      return;
+    }
+    if (activeTool === 'pan') {
+      canvas.upperCanvasEl.style.cursor = 'grab';
+      return;
+    }
+    canvas.selection = true;
+    canvas.upperCanvasEl.style.cursor = '';
+  }, [activeTool]);
 
   const syncUI = useCallback(() => {
     const canvas = fabricCanvas.current;
@@ -424,6 +442,96 @@ const App = () => {
     });
 
     let isPanning = false;
+    let isErasing = false;
+    let eraserTarget = null;
+
+    const isImageObject = (obj) => obj && (obj.type === 'FabricImage' || obj.type === 'image');
+
+    const ensureEraserBuffer = (target) => {
+      if (!target) return null;
+      if (target._pixelCanvas) return target._pixelCanvas;
+      const element = target.getElement?.();
+      if (!element) return null;
+
+      const sourceW = Math.max(1, Math.round(element.naturalWidth || element.videoWidth || element.width || target.width || 1));
+      const sourceH = Math.max(1, Math.round(element.naturalHeight || element.videoHeight || element.height || target.height || 1));
+      const buffer = document.createElement('canvas');
+      buffer.width = sourceW;
+      buffer.height = sourceH;
+      const ctx = buffer.getContext('2d');
+      if (!ctx) return null;
+      ctx.drawImage(element, 0, 0, sourceW, sourceH);
+      target._pixelCanvas = buffer;
+      return buffer;
+    };
+
+    const eraseAtScenePoint = (target, scenePoint) => {
+      if (!isImageObject(target)) return;
+      const buffer = ensureEraserBuffer(target);
+      if (!buffer || !target.width || !target.height) return;
+
+      const inv = fabric.util.invertTransform(target.calcTransformMatrix());
+      const local = fabric.util.transformPoint(scenePoint, inv);
+      const offsetX = target.originX === 'center' ? target.width / 2 : (target.originX === 'right' ? target.width : 0);
+      const offsetY = target.originY === 'center' ? target.height / 2 : (target.originY === 'bottom' ? target.height : 0);
+      const localX = local.x + offsetX;
+      const localY = local.y + offsetY;
+      if (localX < 0 || localY < 0 || localX > target.width || localY > target.height) return;
+
+      const ratioX = buffer.width / target.width;
+      const ratioY = buffer.height / target.height;
+      const brushRadiusLocal = (eraserSizeRef.current / (canvas.getZoom() || 1)) / Math.max(Math.abs(target.scaleX || 1), 0.0001);
+      const radiusX = Math.max(1, brushRadiusLocal * ratioX);
+      const radiusY = Math.max(1, brushRadiusLocal * ratioY);
+
+      const ctx = buffer.getContext('2d');
+      if (!ctx) return;
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.beginPath();
+      ctx.ellipse(localX * ratioX, localY * ratioY, radiusX, radiusY, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      target.setElement(buffer);
+      target.dirty = true;
+      canvas.requestRenderAll();
+    };
+
+    const finalizeEraserTarget = (target) => {
+      if (!target || !target._pixelCanvas) return;
+      const dataURL = target._pixelCanvas.toDataURL('image/png');
+      const props = {
+        left: target.left,
+        top: target.top,
+        scaleX: target.scaleX,
+        scaleY: target.scaleY,
+        angle: target.angle,
+        originX: target.originX,
+        originY: target.originY,
+        flipX: target.flipX,
+        flipY: target.flipY,
+        opacity: target.opacity,
+        id: target.id,
+        name: target.name,
+      };
+
+      fabric.FabricImage.fromURL(dataURL).then((nextImg) => {
+        nextImg.set(props);
+        nextImg.setCoords();
+        isSavingHistory.current = true;
+        canvas.remove(target);
+        canvas.add(nextImg);
+        canvas.setActiveObject(nextImg);
+        isSavingHistory.current = false;
+        canvas.requestRenderAll();
+        syncUI();
+        saveHistory();
+      }).catch((err) => {
+        console.error('Failed to finalize eraser image:', err);
+      });
+    };
+
     const handleMouseMove = (opt) => {
       const active = canvas.getActiveObject();
       if (!active || active.id !== 'temp-prompt-box') return;
@@ -446,6 +554,18 @@ const App = () => {
     };
 
     const handleMouseUp = (opt) => {
+      if (isErasing) {
+        isErasing = false;
+        const target = eraserTarget;
+        eraserTarget = null;
+        finalizeEraserTarget(target);
+        canvas.selection = activeToolRef.current !== 'eraser';
+        canvas.upperCanvasEl.style.cursor = activeToolRef.current === 'eraser'
+          ? 'crosshair'
+          : (isSpacePanRef.current || activeToolRef.current === 'pan' ? 'grab' : '');
+        return;
+      }
+
       if (isPanning) {
         isPanning = false;
         canvas.setViewportTransform(canvas.viewportTransform);
@@ -483,13 +603,32 @@ const App = () => {
     };
 
     const handleMouseDown = (opt) => {
+      if (activeToolRef.current === 'eraser') {
+        const active = canvas.getActiveObject();
+        const target = isImageObject(opt.target) ? opt.target : (isImageObject(active) ? active : null);
+        if (!target) {
+          canvas.upperCanvasEl.style.cursor = 'not-allowed';
+          return;
+        }
+        canvas.setActiveObject(target);
+        setContextMenu(null);
+        canvas.selection = false;
+        canvas.upperCanvasEl.style.cursor = 'crosshair';
+        isErasing = true;
+        eraserTarget = target;
+        const pointer = canvas.getScenePoint(opt.e);
+        eraseAtScenePoint(target, pointer);
+        return;
+      }
+
       const clickedCanvasObject = opt.target && opt.target.id !== 'world-bounds' && opt.target.id !== 'temp-prompt-box';
       if (
         clickedCanvasObject &&
         opt.button !== 3 &&
         !isSpacePanRef.current &&
         activeToolRef.current !== 'select' &&
-        activeToolRef.current !== 'mark'
+        activeToolRef.current !== 'mark' &&
+        activeToolRef.current !== 'eraser'
       ) {
         setActiveTool('select');
         canvas.setActiveObject(opt.target);
@@ -569,6 +708,11 @@ const App = () => {
         syncArtboardPattern();
         canvas.lastPosX = e.clientX;
         canvas.lastPosY = e.clientY;
+      }
+      if (isErasing && eraserTarget) {
+        const pointer = canvas.getScenePoint(opt.e);
+        eraseAtScenePoint(eraserTarget, pointer);
+        return;
       }
       handleMouseMove(opt); // Call the new handler
     });
@@ -1213,6 +1357,7 @@ const App = () => {
       <div className="sidebar-logo"><Sparkles size={28} color="var(--accent)" /></div>
       <button className={`tool-btn ${activeTool === 'pan' ? 'active' : ''}`} onClick={() => setActiveTool('pan')} title="Hand (Space)"><Hand size={22} /></button>
       <button className={`tool-btn ${activeTool === 'select' ? 'active' : ''}`} onClick={() => setActiveTool('select')} title="Selection (V)"><MousePointer2 size={22} /></button>
+      <button className={`tool-btn ${activeTool === 'eraser' ? 'active' : ''}`} onClick={() => setActiveTool('eraser')} title="Pixel Eraser"><Eraser size={20} /></button>
       <button className={`tool-btn ${activeTool === 'mark' ? 'active' : ''}`} onClick={() => setActiveTool('mark')} title="Mark (M)"><Target size={22} /></button>
       <div className="sidebar-divider" />
       <button className={`tool-btn ${showAiInput ? 'active' : ''}`} onClick={() => setShowAiInput(!showAiInput)} title="Magic Generate"><Sparkles size={22} /></button>
@@ -1451,6 +1596,19 @@ const App = () => {
               {/* Image Controls */}
               {(selectedObject.type === 'FabricImage' || selectedObject.type === 'image') && (
                 <div className="image-tools">
+                  {activeTool === 'eraser' && (
+                    <div className="prop-input-group">
+                      <label>Eraser Size ({eraserSize}px)</label>
+                      <input
+                        type="range"
+                        min="6"
+                        max="140"
+                        step="1"
+                        value={eraserSize}
+                        onChange={(e) => setEraserSize(parseInt(e.target.value, 10) || 28)}
+                      />
+                    </div>
+                  )}
                   <div className="prop-input-group">
                     <label>Brightness</label>
                     <input type="range" min="-1" max="1" step="0.1" value={selectedObject.brightness} onChange={(e) => applyImageFilter('brightness', parseFloat(e.target.value))} />
