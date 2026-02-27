@@ -1050,6 +1050,34 @@ input[type="color"]::-webkit-color-swatch {
   word-break: break-word;
 }
 
+.shortcuts-list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.shortcut-row kbd {
+  min-width: 72px;
+  text-align: center;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: #f4f7fb;
+  color: #334155;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .modal-actions {
   display: flex;
   gap: 12px;

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Plus, MousePointer2, Square, Type, Image as ImageIcon, Maximize,
-  Layers as LayersIcon, Settings, Download, Trash2, Eye, EyeOff, Eraser,
+  Layers as LayersIcon, Settings, Download, Trash2, Eye, EyeOff, Eraser, Circle,
   MoreHorizontal, Sparkles, Scissors, Target, Edit3, RotateCcw,
   RotateCw, Undo2, Redo2, Grid, Search, Hand, AlignLeft, AlignCenter,
   AlignRight, AlignVerticalJustifyStart, AlignVerticalJustifyCenter,
@@ -53,6 +53,7 @@ const App = () => {
   const [isDeletingAsset, setIsDeletingAsset] = useState(false);
   const [activePanelTab, setActivePanelTab] = useState('properties');
   const [activePropsTab, setActivePropsTab] = useState('image');
+  const [showShortcutsModal, setShowShortcutsModal] = useState(false);
   const [settingsOptions, setSettingsOptions] = useState({
     workflows: [],
     ocrModels: [],
@@ -77,6 +78,7 @@ const App = () => {
   const isSpacePanRef = useRef(false);
   const eraserSizeRef = useRef(eraserSize);
   const eraserCursorRef = useRef(null);
+  const imageInputRef = useRef(null);
 
   // --- Sync Refs ---
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
@@ -888,6 +890,22 @@ const App = () => {
         e.preventDefault();
         return;
       }
+      if ((e.key === '?' || (e.key === '/' && e.shiftKey)) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        setShowShortcutsModal((prev) => !prev);
+        e.preventDefault();
+        return;
+      }
+      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+        const key = e.key.toLowerCase();
+        if (key === 'v') { setActiveTool('select'); e.preventDefault(); return; }
+        if (key === 'h') { setActiveTool('pan'); e.preventDefault(); return; }
+        if (key === 'm') { setActiveTool('mark'); e.preventDefault(); return; }
+        if (key === 'e') { setActiveTool('eraser'); e.preventDefault(); return; }
+        if (key === 'r') { addRect(); e.preventDefault(); return; }
+        if (key === 'o') { addCircle(); e.preventDefault(); return; }
+        if (key === 't') { addText(); e.preventDefault(); return; }
+        if (key === 'i') { imageInputRef.current?.click(); e.preventDefault(); return; }
+      }
       if (e.ctrlKey && e.key === 'z') { undo(); e.preventDefault(); }
       if (e.ctrlKey && e.key === 'y') { redo(); e.preventDefault(); }
       if (e.ctrlKey && e.key === 'g') { groupSelected(); e.preventDefault(); }
@@ -1058,6 +1076,25 @@ const App = () => {
     rect.setPositionByOrigin(sceneCenter, 'center', 'center');
     rect.setCoords();
     canvas.setActiveObject(rect);
+    canvas.requestRenderAll();
+    syncUI();
+    saveHistory();
+  };
+
+  const addCircle = () => {
+    const canvas = fabricCanvas.current;
+    if (!canvas) return;
+    const circle = new fabric.Circle({
+      radius: 75,
+      fill: 'rgba(59, 130, 246, 0.5)',
+      stroke: '#3b82f6',
+      strokeWidth: 2
+    });
+    canvas.add(circle);
+    const sceneCenter = getCreationCenterInScene();
+    circle.setPositionByOrigin(sceneCenter, 'center', 'center');
+    circle.setCoords();
+    canvas.setActiveObject(circle);
     canvas.requestRenderAll();
     syncUI();
     saveHistory();
@@ -1513,21 +1550,22 @@ const App = () => {
   };
 
   const selectedIsText = selectedObject?.type === 'i-text' || selectedObject?.type === 'text';
-  const selectedIsShape = selectedObject?.type === 'rect';
+  const selectedIsShape = selectedObject?.type === 'rect' || selectedObject?.type === 'circle' || selectedObject?.type === 'ellipse';
   const selectedIsImage = selectedObject?.type === 'FabricImage' || selectedObject?.type === 'image';
 
   // --- HTML Sub-components ---
   const Sidebar = () => (
     <aside className="sidebar">
       <div className="sidebar-logo"><Sparkles size={28} color="var(--accent)" /></div>
-      <button className={`tool-btn ${activeTool === 'pan' ? 'active' : ''}`} onClick={() => setActiveTool('pan')} title="Hand (Space)"><Hand size={22} /></button>
+      <button className={`tool-btn ${activeTool === 'pan' ? 'active' : ''}`} onClick={() => setActiveTool('pan')} title="Hand (H / Space)"><Hand size={22} /></button>
       <button className={`tool-btn ${activeTool === 'select' ? 'active' : ''}`} onClick={() => setActiveTool('select')} title="Selection (V)"><MousePointer2 size={22} /></button>
-      <button className={`tool-btn ${activeTool === 'eraser' ? 'active' : ''}`} onClick={() => setActiveTool('eraser')} title="Pixel Eraser"><Eraser size={20} /></button>
+      <button className={`tool-btn ${activeTool === 'eraser' ? 'active' : ''}`} onClick={() => setActiveTool('eraser')} title="Pixel Eraser (E)"><Eraser size={20} /></button>
       <button className={`tool-btn ${activeTool === 'mark' ? 'active' : ''}`} onClick={() => setActiveTool('mark')} title="Mark (M)"><Target size={22} /></button>
       <div className="sidebar-divider" />
-      <button className="tool-btn" onClick={addRect}><Square size={22} /></button>
-      <button className="tool-btn" onClick={addText}><TypeIcon size={22} /></button>
-      <label className="tool-btn" title="Image"><ImageIcon size={22} /><input type="file" hidden accept="image/*" onChange={(e) => addImage(e.target.files[0])} /></label>
+      <button className="tool-btn" onClick={addRect} title="Rectangle (R)"><Square size={22} /></button>
+      <button className="tool-btn" onClick={addCircle} title="Circle (O)"><Circle size={20} /></button>
+      <button className="tool-btn" onClick={addText} title="Text (T)"><TypeIcon size={22} /></button>
+      <label className="tool-btn" title="Image (I)"><ImageIcon size={22} /><input ref={imageInputRef} type="file" hidden accept="image/*" onChange={(e) => addImage(e.target.files[0])} /></label>
     </aside>
   );
 
@@ -2036,7 +2074,34 @@ const App = () => {
         <span>Zoom: {Math.round(zoom * 100)}%</span>
         <span>Tool: {activeTool.toUpperCase()}</span>
         <span>Tip: Hold Space to Pan</span>
+        <button className="action-tag footer-action-btn" onClick={() => setShowShortcutsModal(true)}>? Shortcuts</button>
       </footer>
+
+      {showShortcutsModal && (
+        <div className="modal-overlay" onClick={() => setShowShortcutsModal(false)}>
+          <div className="confirm-modal" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-text">
+              <h3>Keyboard Shortcuts</h3>
+              <div className="shortcuts-list">
+                <div className="shortcut-row"><span>Selection</span><kbd>V</kbd></div>
+                <div className="shortcut-row"><span>Hand / Pan</span><kbd>H</kbd></div>
+                <div className="shortcut-row"><span>Mark</span><kbd>M</kbd></div>
+                <div className="shortcut-row"><span>Eraser</span><kbd>E</kbd></div>
+                <div className="shortcut-row"><span>Rectangle</span><kbd>R</kbd></div>
+                <div className="shortcut-row"><span>Circle</span><kbd>O</kbd></div>
+                <div className="shortcut-row"><span>Text</span><kbd>T</kbd></div>
+                <div className="shortcut-row"><span>Image Upload</span><kbd>I</kbd></div>
+                <div className="shortcut-row"><span>Undo</span><kbd>Ctrl + Z</kbd></div>
+                <div className="shortcut-row"><span>Redo</span><kbd>Ctrl + Y</kbd></div>
+                <div className="shortcut-row"><span>Toggle This Help</span><kbd>?</kbd></div>
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button className="modal-btn confirm" onClick={() => setShowShortcutsModal(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Confirmation Modal */}
       {showRemoveBgConfirm && (
