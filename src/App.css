@@ -439,6 +439,11 @@ body {
   border-color: rgba(100, 116, 139, 0.7);
 }
 
+.align-grid button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .props-body {
   display: flex;
   flex-direction: column;

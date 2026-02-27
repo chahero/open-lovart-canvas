@@ -996,21 +996,63 @@ const App = () => {
 
   const align = (type) => {
     const canvas = fabricCanvas.current;
-    const active = canvas.getActiveObject();
-    if (!active) return;
-    const bound = active.getBoundingRect();
-    const offsetX = active.left - bound.left;
-    const offsetY = active.top - bound.top;
+    const activeObjects = canvas?.getActiveObjects?.() || [];
+    if (!canvas || activeObjects.length < 2) return;
 
-    switch (type) {
-      case 'left': active.set('left', offsetX); break;
-      case 'center-h': active.set('left', WORLD_CENTER_X - (bound.width / 2) + offsetX); break;
-      case 'right': active.set('left', WORLD_CANVAS_WIDTH - bound.width + offsetX); break;
-      case 'top': active.set('top', offsetY); break;
-      case 'center-v': active.set('top', WORLD_CENTER_Y - (bound.height / 2) + offsetY); break;
-      case 'bottom': active.set('top', WORLD_CANVAS_HEIGHT - bound.height + offsetY); break;
+    let minLeft = Infinity;
+    let maxRight = -Infinity;
+    let minTop = Infinity;
+    let maxBottom = -Infinity;
+
+    const objectBounds = activeObjects.map((obj) => {
+      const bound = obj.getBoundingRect();
+      const bounds = {
+        obj,
+        left: bound.left,
+        right: bound.left + bound.width,
+        top: bound.top,
+        bottom: bound.top + bound.height,
+      };
+      minLeft = Math.min(minLeft, bounds.left);
+      maxRight = Math.max(maxRight, bounds.right);
+      minTop = Math.min(minTop, bounds.top);
+      maxBottom = Math.max(maxBottom, bounds.bottom);
+      return bounds;
+    });
+
+    const selectionLeft = minLeft;
+    const selectionRight = maxRight;
+    const selectionTop = minTop;
+    const selectionBottom = maxBottom;
+    const selectionCenterX = (selectionLeft + selectionRight) / 2;
+    const selectionCenterY = (selectionTop + selectionBottom) / 2;
+
+    for (const item of objectBounds) {
+      const bound = item.obj.getBoundingRect();
+      const offsetX = item.obj.left - bound.left;
+      const offsetY = item.obj.top - bound.top;
+      switch (type) {
+        case 'left':
+          item.obj.set('left', selectionLeft + offsetX);
+          break;
+        case 'center-h':
+          item.obj.set('left', selectionCenterX - (bound.width / 2) + offsetX);
+          break;
+        case 'right':
+          item.obj.set('left', selectionRight - bound.width + offsetX);
+          break;
+        case 'top':
+          item.obj.set('top', selectionTop + offsetY);
+          break;
+        case 'center-v':
+          item.obj.set('top', selectionCenterY - (bound.height / 2) + offsetY);
+          break;
+        case 'bottom':
+          item.obj.set('top', selectionBottom - bound.height + offsetY);
+          break;
+      }
     }
-    active.setCoords();
+    activeObjects.forEach((obj) => obj.setCoords());
     canvas.renderAll();
     saveHistory();
   };
@@ -1753,12 +1795,48 @@ const App = () => {
             <div className="cp-section">
               <h3 className="section-label">Alignment</h3>
               <div className="align-grid">
-                <button onClick={() => align('left')}><AlignLeft size={18} /></button>
-                <button onClick={() => align('center-h')}><AlignCenter size={18} /></button>
-                <button onClick={() => align('right')}><AlignRight size={18} /></button>
-                <button onClick={() => align('top')}><AlignVerticalJustifyStart size={18} /></button>
-                <button onClick={() => align('center-v')}><AlignVerticalJustifyCenter size={18} /></button>
-                <button onClick={() => align('bottom')}><AlignVerticalJustifyEnd size={18} /></button>
+                <button
+                  disabled={!selectedObject?.isMultiple}
+                  title={!selectedObject?.isMultiple ? 'Select at least 2 layers to align' : 'Align left'}
+                  onClick={() => selectedObject?.isMultiple && align('left')}
+                >
+                  <AlignLeft size={18} />
+                </button>
+                <button
+                  disabled={!selectedObject?.isMultiple}
+                  title={!selectedObject?.isMultiple ? 'Select at least 2 layers to align' : 'Align center'}
+                  onClick={() => selectedObject?.isMultiple && align('center-h')}
+                >
+                  <AlignCenter size={18} />
+                </button>
+                <button
+                  disabled={!selectedObject?.isMultiple}
+                  title={!selectedObject?.isMultiple ? 'Select at least 2 layers to align' : 'Align right'}
+                  onClick={() => selectedObject?.isMultiple && align('right')}
+                >
+                  <AlignRight size={18} />
+                </button>
+                <button
+                  disabled={!selectedObject?.isMultiple}
+                  title={!selectedObject?.isMultiple ? 'Select at least 2 layers to align' : 'Align top'}
+                  onClick={() => selectedObject?.isMultiple && align('top')}
+                >
+                  <AlignVerticalJustifyStart size={18} />
+                </button>
+                <button
+                  disabled={!selectedObject?.isMultiple}
+                  title={!selectedObject?.isMultiple ? 'Select at least 2 layers to align' : 'Align center vertical'}
+                  onClick={() => selectedObject?.isMultiple && align('center-v')}
+                >
+                  <AlignVerticalJustifyCenter size={18} />
+                </button>
+                <button
+                  disabled={!selectedObject?.isMultiple}
+                  title={!selectedObject?.isMultiple ? 'Select at least 2 layers to align' : 'Align bottom'}
+                  onClick={() => selectedObject?.isMultiple && align('bottom')}
+                >
+                  <AlignVerticalJustifyEnd size={18} />
+                </button>
               </div>
             </div>
 
