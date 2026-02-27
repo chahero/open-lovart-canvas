@@ -1069,7 +1069,19 @@ const App = () => {
     const activeObject = canvas.getActiveObject();
     let dataURL = null;
 
-    if (activeObject && activeObject.type?.toLowerCase() === 'activeselection') {
+    const isActiveSelection = activeObject?.type?.toLowerCase() === 'activeselection';
+
+    if (selectedCount >= 2 && isActiveSelection) {
+      try {
+        dataURL = activeObject.toDataURL({
+          format: normalizedFormat,
+          quality,
+        });
+      } catch (err) {
+        alert('Export failed for multiple selected layers. Please reselect and try again.');
+        return;
+      }
+    } else if (activeObject && isActiveSelection) {
       try {
         dataURL = activeObject.toDataURL({
           format: normalizedFormat,
