@@ -964,6 +964,13 @@ input[type="color"]::-webkit-color-swatch {
   font-size: 14px;
   color: var(--text-secondary);
   line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.asset-name-break {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .modal-actions {
@@ -1049,8 +1056,17 @@ input[type="color"]::-webkit-color-swatch {
   color: rgb(16, 185, 129);
 }
 
+.modal-icon-circle.danger {
+  background: rgba(239, 68, 68, 0.14);
+  color: #ef4444;
+}
+
 .modal-btn.confirm.segment {
   background: rgb(16, 185, 129);
+}
+
+.modal-btn.confirm.danger {
+  background: #ef4444;
 }
 
 .mark-status {

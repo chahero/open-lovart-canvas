@@ -46,6 +46,10 @@ server/.env
 *.ckpt
 *.safetensors
 
+# Runtime asset library (server-managed)
+server/assets/library/files/
+server/assets/library/index.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

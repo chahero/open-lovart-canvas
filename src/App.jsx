@@ -49,6 +49,8 @@ const App = () => {
   const [assetLibrary, setAssetLibrary] = useState([]);
   const [isLibraryLoading, setIsLibraryLoading] = useState(false);
   const [isLibrarySaving, setIsLibrarySaving] = useState(false);
+  const [pendingDeleteAsset, setPendingDeleteAsset] = useState(null);
+  const [isDeletingAsset, setIsDeletingAsset] = useState(false);
   const [settingsOptions, setSettingsOptions] = useState({
     workflows: [],
     ocrModels: [],
@@ -300,6 +302,11 @@ const App = () => {
     return `${API_BASE_URL}${assetUrl.startsWith('/') ? '' : '/'}${assetUrl}`;
   }, []);
 
+  const loadFabricImage = async (url) => {
+    const isRemoteUrl = typeof url === 'string' && /^https?:\/\//i.test(url);
+    return fabric.FabricImage.fromURL(url, isRemoteUrl ? { crossOrigin: 'anonymous' } : {});
+  };
+
   const loadAssetLibrary = useCallback(async () => {
     setIsLibraryLoading(true);
     try {
@@ -324,7 +331,7 @@ const App = () => {
     if (!canvas) return;
 
     try {
-      const img = await fabric.FabricImage.fromURL(toAbsoluteAssetUrl(asset.url));
+      const img = await loadFabricImage(toAbsoluteAssetUrl(asset.url));
       if ((img.width || 0) > 500) img.scaleToWidth(500);
       img.name = asset.name || 'Library Asset';
       canvas.add(img);
@@ -381,9 +388,8 @@ const App = () => {
 
   const deleteAssetFromLibrary = async (assetId) => {
     if (!assetId) return;
-    const approved = window.confirm('Delete this asset from library?');
-    if (!approved) return;
 
+    setIsDeletingAsset(true);
     try {
       const response = await fetch(`${API_BASE_URL}/assets/${assetId}`, {
         method: 'DELETE',
@@ -393,9 +399,12 @@ const App = () => {
         throw new Error(errorData.detail || 'Failed to delete asset');
       }
       setAssetLibrary((prev) => prev.filter((item) => item.id !== assetId));
+      setPendingDeleteAsset(null);
     } catch (err) {
       console.error(err);
       alert('Failed to delete library asset: ' + err.message);
+    } finally {
+      setIsDeletingAsset(false);
     }
   };
 
@@ -624,7 +633,7 @@ const App = () => {
         name: target.name,
       };
 
-      fabric.FabricImage.fromURL(dataURL).then((nextImg) => {
+      loadFabricImage(dataURL).then((nextImg) => {
         nextImg.set(props);
         nextImg.setCoords();
         isSavingHistory.current = true;
@@ -1033,7 +1042,7 @@ const App = () => {
       try {
         const canvas = fabricCanvas.current;
         if (!canvas) return;
-        const img = await fabric.FabricImage.fromURL(f.target.result);
+        const img = await loadFabricImage(f.target.result);
         img.scaleToWidth(400);
         img.name = file.name;
         canvas.add(img);
@@ -1118,7 +1127,7 @@ const App = () => {
       const resultBlob = await response.blob();
       const resultURL = URL.createObjectURL(resultBlob);
 
-      const img = await fabric.FabricImage.fromURL(resultURL);
+      const img = await loadFabricImage(resultURL);
       img.set({
         left: active.left,
         top: active.top,
@@ -1160,7 +1169,7 @@ const App = () => {
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
 
-      const img = await fabric.FabricImage.fromURL(url);
+      const img = await loadFabricImage(url);
       img.scaleToWidth(512);
       const canvas = fabricCanvas.current;
       canvas.add(img);
@@ -1300,7 +1309,7 @@ const App = () => {
       const resultBlob = await response.blob();
       const resultURL = URL.createObjectURL(resultBlob);
 
-      const img = await fabric.FabricImage.fromURL(resultURL);
+      const img = await loadFabricImage(resultURL);
       img.set({
         left: active.left,
         top: active.top,
@@ -1764,7 +1773,7 @@ const App = () => {
                   <button
                     className="library-delete-btn"
                     title="Delete asset"
-                    onClick={() => deleteAssetFromLibrary(asset.id)}
+                    onClick={() => setPendingDeleteAsset(asset)}
                   >
                     <Trash2 size={12} />
                   </button>
@@ -1890,6 +1899,38 @@ const App = () => {
                 disabled={isSettingsSaving || isSettingsLoading}
               >
                 {isSettingsSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingDeleteAsset && (
+        <div className="modal-overlay" onClick={() => !isDeletingAsset && setPendingDeleteAsset(null)}>
+          <div className="confirm-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-icon-circle danger">
+              <Trash2 size={28} />
+            </div>
+            <div className="modal-text">
+              <h3>Delete Library Asset?</h3>
+              <p>
+                This will remove <strong className="asset-name-break">{pendingDeleteAsset.name || 'this asset'}</strong> from your library.
+              </p>
+            </div>
+            <div className="modal-actions">
+              <button
+                className="modal-btn cancel"
+                onClick={() => setPendingDeleteAsset(null)}
+                disabled={isDeletingAsset}
+              >
+                Cancel
+              </button>
+              <button
+                className="modal-btn confirm danger"
+                onClick={() => deleteAssetFromLibrary(pendingDeleteAsset.id)}
+                disabled={isDeletingAsset}
+              >
+                {isDeletingAsset ? 'Deleting...' : 'Delete'}
               </button>
             </div>
           </div>
