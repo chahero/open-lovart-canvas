@@ -232,6 +232,18 @@ body {
   display: block;
 }
 
+.eraser-cursor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(59, 130, 246, 0.95);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.9);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 1100;
+}
+
 .drop-overlay {
   position: absolute;
   top: 0;

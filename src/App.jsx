@@ -74,6 +74,7 @@ const App = () => {
   const dragCounter = useRef(0);
   const isSpacePanRef = useRef(false);
   const eraserSizeRef = useRef(eraserSize);
+  const eraserCursorRef = useRef(null);
 
   // --- Sync Refs ---
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
@@ -85,16 +86,18 @@ const App = () => {
     if (activeTool === 'eraser') {
       canvas.selection = false;
       canvas.skipTargetFind = true;
-      canvas.upperCanvasEl.style.cursor = 'crosshair';
+      canvas.upperCanvasEl.style.cursor = 'none';
       return;
     }
     canvas.skipTargetFind = false;
     if (activeTool === 'pan') {
       canvas.upperCanvasEl.style.cursor = 'grab';
+      if (eraserCursorRef.current) eraserCursorRef.current.style.display = 'none';
       return;
     }
     canvas.selection = true;
     canvas.upperCanvasEl.style.cursor = '';
+    if (eraserCursorRef.current) eraserCursorRef.current.style.display = 'none';
   }, [activeTool]);
 
   const syncUI = useCallback(() => {
@@ -565,6 +568,16 @@ const App = () => {
     let eraserTarget = null;
 
     const isImageObject = (obj) => obj && (obj.type === 'FabricImage' || obj.type === 'image');
+    const hideEraserCursor = () => {
+      if (eraserCursorRef.current) eraserCursorRef.current.style.display = 'none';
+    };
+    const moveEraserCursor = (e) => {
+      if (activeToolRef.current !== 'eraser' || !eraserCursorRef.current) return;
+      const rect = canvas.upperCanvasEl.getBoundingClientRect();
+      eraserCursorRef.current.style.left = `${e.clientX - rect.left}px`;
+      eraserCursorRef.current.style.top = `${e.clientY - rect.top}px`;
+      eraserCursorRef.current.style.display = 'block';
+    };
 
     const ensureEraserBuffer = (target) => {
       if (!target) return null;
@@ -725,13 +738,14 @@ const App = () => {
       if (activeToolRef.current === 'eraser') {
         const active = canvas.getActiveObject();
         const pointer = canvas.getScenePoint(opt.e);
+        moveEraserCursor(opt.e);
         const hoveredImage = canvas.getObjects()
           .slice()
           .reverse()
           .find((obj) => isImageObject(obj) && obj.containsPoint(pointer));
         const target = isImageObject(active) ? active : hoveredImage;
         if (!target) {
-          canvas.upperCanvasEl.style.cursor = 'not-allowed';
+          canvas.upperCanvasEl.style.cursor = 'none';
           return;
         }
         opt.e.preventDefault();
@@ -834,6 +848,9 @@ const App = () => {
         canvas.lastPosX = e.clientX;
         canvas.lastPosY = e.clientY;
       }
+      if (activeToolRef.current === 'eraser') {
+        moveEraserCursor(opt.e);
+      }
       if (isErasing && eraserTarget) {
         const pointer = canvas.getScenePoint(opt.e);
         eraseAtScenePoint(eraserTarget, pointer);
@@ -843,6 +860,7 @@ const App = () => {
     });
 
     canvas.on('mouse:up', handleMouseUp); // Call the new handler
+    canvas.upperCanvasEl.addEventListener('mouseleave', hideEraserCursor);
 
     // Keyboard Shortcuts
     const handleKeyDown = (e) => {
@@ -891,6 +909,8 @@ const App = () => {
         fabricCanvas.current = null;
       }
       isSpacePanRef.current = false;
+      canvas.upperCanvasEl.removeEventListener('mouseleave', hideEraserCursor);
+      hideEraserCursor();
       canvas.upperCanvasEl.style.cursor = '';
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
@@ -1605,6 +1625,15 @@ const App = () => {
         }}>
         <div className="canvas-shadow">
           <canvas ref={canvasRef} />
+          <div
+            ref={eraserCursorRef}
+            className="eraser-cursor"
+            style={{
+              width: `${eraserSize * 2}px`,
+              height: `${eraserSize * 2}px`,
+              display: activeTool === 'eraser' ? 'block' : 'none'
+            }}
+          />
           {marks.map((m, i) => (
             <div
               key={m.id}
