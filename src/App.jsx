@@ -14,8 +14,6 @@ import './App.css';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 const WORLD_CANVAS_WIDTH = 5000;
 const WORLD_CANVAS_HEIGHT = 5000;
-const WORLD_CENTER_X = WORLD_CANVAS_WIDTH / 2;
-const WORLD_CENTER_Y = WORLD_CANVAS_HEIGHT / 2;
 const SHORTCUT_DEFINITIONS = [
   { id: 'select', label: 'Selection', key: 'v', keyLabel: 'V' },
   { id: 'pan', label: 'Hand / Pan', key: 'h', keyLabel: 'H' },
@@ -67,6 +65,7 @@ const App = () => {
   const [isDeletingAsset, setIsDeletingAsset] = useState(false);
   const [activePanelTab, setActivePanelTab] = useState('properties');
   const [activePropsTab, setActivePropsTab] = useState('image');
+  const [showAlignmentHint, setShowAlignmentHint] = useState(false);
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
   const [settingsOptions, setSettingsOptions] = useState({
     workflows: [],
@@ -88,6 +87,7 @@ const App = () => {
   const activeToolRef = useRef(activeTool);
   const marksRef = useRef(marks);
   const isSavingHistory = useRef(false);
+  const alignmentHintTimerRef = useRef(null);
   const dragCounter = useRef(0);
   const isSpacePanRef = useRef(false);
   const eraserSizeRef = useRef(eraserSize);
@@ -934,6 +934,14 @@ const App = () => {
       }
       if (e.ctrlKey && e.key === 'g') { groupSelected(); e.preventDefault(); }
       if (e.ctrlKey && e.shiftKey && e.key === 'G') { ungroupSelected(); e.preventDefault(); }
+      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        if (key === 'l') { executeAlign('left'); e.preventDefault(); return; }
+        if (key === 'c') { executeAlign('center-h'); e.preventDefault(); return; }
+        if (key === 'r') { executeAlign('right'); e.preventDefault(); return; }
+        if (key === 't') { executeAlign('top'); e.preventDefault(); return; }
+        if (key === 'v') { executeAlign('center-v'); e.preventDefault(); return; }
+        if (key === 'b') { executeAlign('bottom'); e.preventDefault(); return; }
+      }
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const activeObjects = canvas.getActiveObjects();
         activeObjects.forEach(obj => canvas.remove(obj));
@@ -966,6 +974,9 @@ const App = () => {
         fabricCanvas.current.dispose();
         fabricCanvas.current = null;
       }
+      if (alignmentHintTimerRef.current) {
+        clearTimeout(alignmentHintTimerRef.current);
+      }
       isSpacePanRef.current = false;
       canvas.upperCanvasEl.removeEventListener('mouseleave', hideEraserCursor);
       hideEraserCursor();
@@ -994,10 +1005,42 @@ const App = () => {
     saveHistory();
   };
 
+  const canAlignSelection = () => {
+    const activeObjects = fabricCanvas.current?.getActiveObjects?.() || [];
+    return activeObjects.length >= 2;
+  };
+
+  const triggerAlignHint = () => {
+    setShowAlignmentHint(true);
+    if (alignmentHintTimerRef.current) {
+      clearTimeout(alignmentHintTimerRef.current);
+    }
+    alignmentHintTimerRef.current = setTimeout(() => {
+      setShowAlignmentHint(false);
+      alignmentHintTimerRef.current = null;
+    }, 1800);
+  };
+
+  const executeAlign = (type) => {
+    if (!canAlignSelection()) {
+      triggerAlignHint();
+      return;
+    }
+    if (alignmentHintTimerRef.current) {
+      clearTimeout(alignmentHintTimerRef.current);
+      alignmentHintTimerRef.current = null;
+    }
+    setShowAlignmentHint(false);
+    align(type);
+  };
+
   const align = (type) => {
     const canvas = fabricCanvas.current;
     const activeObjects = canvas?.getActiveObjects?.() || [];
-    if (!canvas || activeObjects.length < 2) return;
+    if (!canvas || activeObjects.length < 2) {
+      triggerAlignHint();
+      return;
+    }
 
     let minLeft = Infinity;
     let maxRight = -Infinity;
@@ -1657,6 +1700,8 @@ const App = () => {
     </header>
   );
 
+  const canAlignNow = canAlignSelection();
+
   return (
     <div className="app-container" onContextMenu={(e) => e.preventDefault()}>
       <Sidebar />
@@ -1796,48 +1841,51 @@ const App = () => {
               <h3 className="section-label">Alignment</h3>
               <div className="align-grid">
                 <button
-                  disabled={!selectedObject?.isMultiple}
-                  title={!selectedObject?.isMultiple ? 'Select at least 2 layers to align' : 'Align left'}
-                  onClick={() => selectedObject?.isMultiple && align('left')}
+                  disabled={!canAlignNow}
+                  title={!canAlignNow ? 'Select at least 2 layers to align' : 'Align left'}
+                  onClick={() => executeAlign('left')}
                 >
                   <AlignLeft size={18} />
                 </button>
                 <button
-                  disabled={!selectedObject?.isMultiple}
-                  title={!selectedObject?.isMultiple ? 'Select at least 2 layers to align' : 'Align center'}
-                  onClick={() => selectedObject?.isMultiple && align('center-h')}
+                  disabled={!canAlignNow}
+                  title={!canAlignNow ? 'Select at least 2 layers to align' : 'Align center'}
+                  onClick={() => executeAlign('center-h')}
                 >
                   <AlignCenter size={18} />
                 </button>
                 <button
-                  disabled={!selectedObject?.isMultiple}
-                  title={!selectedObject?.isMultiple ? 'Select at least 2 layers to align' : 'Align right'}
-                  onClick={() => selectedObject?.isMultiple && align('right')}
+                  disabled={!canAlignNow}
+                  title={!canAlignNow ? 'Select at least 2 layers to align' : 'Align right'}
+                  onClick={() => executeAlign('right')}
                 >
                   <AlignRight size={18} />
                 </button>
                 <button
-                  disabled={!selectedObject?.isMultiple}
-                  title={!selectedObject?.isMultiple ? 'Select at least 2 layers to align' : 'Align top'}
-                  onClick={() => selectedObject?.isMultiple && align('top')}
+                  disabled={!canAlignNow}
+                  title={!canAlignNow ? 'Select at least 2 layers to align' : 'Align top'}
+                  onClick={() => executeAlign('top')}
                 >
                   <AlignVerticalJustifyStart size={18} />
                 </button>
                 <button
-                  disabled={!selectedObject?.isMultiple}
-                  title={!selectedObject?.isMultiple ? 'Select at least 2 layers to align' : 'Align center vertical'}
-                  onClick={() => selectedObject?.isMultiple && align('center-v')}
+                  disabled={!canAlignNow}
+                  title={!canAlignNow ? 'Select at least 2 layers to align' : 'Align center vertical'}
+                  onClick={() => executeAlign('center-v')}
                 >
                   <AlignVerticalJustifyCenter size={18} />
                 </button>
                 <button
-                  disabled={!selectedObject?.isMultiple}
-                  title={!selectedObject?.isMultiple ? 'Select at least 2 layers to align' : 'Align bottom'}
-                  onClick={() => selectedObject?.isMultiple && align('bottom')}
+                  disabled={!canAlignNow}
+                  title={!canAlignNow ? 'Select at least 2 layers to align' : 'Align bottom'}
+                  onClick={() => executeAlign('bottom')}
                 >
                   <AlignVerticalJustifyEnd size={18} />
                 </button>
               </div>
+              {showAlignmentHint && (
+                <p className="align-hint">Select at least 2 layers to use alignment.</p>
+              )}
             </div>
 
             <div className="cp-section">

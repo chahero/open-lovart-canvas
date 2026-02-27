@@ -444,6 +444,12 @@ body {
   cursor: not-allowed;
 }
 
+.align-hint {
+  margin-top: 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
 .props-body {
   display: flex;
   flex-direction: column;
