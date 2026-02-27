@@ -16,6 +16,20 @@ const WORLD_CANVAS_WIDTH = 5000;
 const WORLD_CANVAS_HEIGHT = 5000;
 const WORLD_CENTER_X = WORLD_CANVAS_WIDTH / 2;
 const WORLD_CENTER_Y = WORLD_CANVAS_HEIGHT / 2;
+const SHORTCUT_DEFINITIONS = [
+  { id: 'select', label: 'Selection', key: 'v', keyLabel: 'V' },
+  { id: 'pan', label: 'Hand / Pan', key: 'h', keyLabel: 'H' },
+  { id: 'panHold', label: 'Pan (Hold)', keyLabel: 'Space', displayOnly: true },
+  { id: 'mark', label: 'Mark', key: 'm', keyLabel: 'M' },
+  { id: 'eraser', label: 'Eraser', key: 'e', keyLabel: 'E' },
+  { id: 'rect', label: 'Rectangle', key: 'r', keyLabel: 'R' },
+  { id: 'circle', label: 'Circle', key: 'o', keyLabel: 'O' },
+  { id: 'text', label: 'Text', key: 't', keyLabel: 'T' },
+  { id: 'imageUpload', label: 'Image Upload', key: 'i', keyLabel: 'I' },
+  { id: 'undo', label: 'Undo', key: 'z', keyLabel: 'Ctrl + Z', ctrl: true },
+  { id: 'redo', label: 'Redo', key: 'y', keyLabel: 'Ctrl + Y', ctrl: true },
+  { id: 'toggleShortcuts', label: 'Toggle This Help', key: '?', keyLabel: '?' },
+];
 
 const App = () => {
   // --- States ---
@@ -883,31 +897,41 @@ const App = () => {
     // Keyboard Shortcuts
     const handleKeyDown = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-      const active = canvas.getActiveObject();
       if (e.code === 'Space' && !e.repeat && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
         isSpacePanRef.current = true;
         canvas.upperCanvasEl.style.cursor = 'grab';
         e.preventDefault();
         return;
       }
-      if ((e.key === '?' || (e.key === '/' && e.shiftKey)) && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        setShowShortcutsModal((prev) => !prev);
+      const key = e.key.toLowerCase();
+      const shortcut = SHORTCUT_DEFINITIONS.find((item) => {
+        if (!item.key) return false;
+        if (item.id === 'toggleShortcuts') {
+          return !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === '?' || (e.key === '/' && e.shiftKey));
+        }
+        if (item.ctrl) {
+          return (e.ctrlKey || e.metaKey) && !e.altKey && key === item.key;
+        }
+        return !e.ctrlKey && !e.metaKey && !e.altKey && key === item.key;
+      });
+      if (shortcut) {
+        switch (shortcut.id) {
+          case 'select': setActiveTool('select'); break;
+          case 'pan': setActiveTool('pan'); break;
+          case 'mark': setActiveTool('mark'); break;
+          case 'eraser': setActiveTool('eraser'); break;
+          case 'rect': addRect(); break;
+          case 'circle': addCircle(); break;
+          case 'text': addText(); break;
+          case 'imageUpload': imageInputRef.current?.click(); break;
+          case 'undo': undo(); break;
+          case 'redo': redo(); break;
+          case 'toggleShortcuts': setShowShortcutsModal((prev) => !prev); break;
+          default: break;
+        }
         e.preventDefault();
         return;
       }
-      if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-        const key = e.key.toLowerCase();
-        if (key === 'v') { setActiveTool('select'); e.preventDefault(); return; }
-        if (key === 'h') { setActiveTool('pan'); e.preventDefault(); return; }
-        if (key === 'm') { setActiveTool('mark'); e.preventDefault(); return; }
-        if (key === 'e') { setActiveTool('eraser'); e.preventDefault(); return; }
-        if (key === 'r') { addRect(); e.preventDefault(); return; }
-        if (key === 'o') { addCircle(); e.preventDefault(); return; }
-        if (key === 't') { addText(); e.preventDefault(); return; }
-        if (key === 'i') { imageInputRef.current?.click(); e.preventDefault(); return; }
-      }
-      if (e.ctrlKey && e.key === 'z') { undo(); e.preventDefault(); }
-      if (e.ctrlKey && e.key === 'y') { redo(); e.preventDefault(); }
       if (e.ctrlKey && e.key === 'g') { groupSelected(); e.preventDefault(); }
       if (e.ctrlKey && e.shiftKey && e.key === 'G') { ungroupSelected(); e.preventDefault(); }
       if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -2083,17 +2107,12 @@ const App = () => {
             <div className="modal-text">
               <h3>Keyboard Shortcuts</h3>
               <div className="shortcuts-list">
-                <div className="shortcut-row"><span>Selection</span><kbd>V</kbd></div>
-                <div className="shortcut-row"><span>Hand / Pan</span><kbd>H</kbd></div>
-                <div className="shortcut-row"><span>Mark</span><kbd>M</kbd></div>
-                <div className="shortcut-row"><span>Eraser</span><kbd>E</kbd></div>
-                <div className="shortcut-row"><span>Rectangle</span><kbd>R</kbd></div>
-                <div className="shortcut-row"><span>Circle</span><kbd>O</kbd></div>
-                <div className="shortcut-row"><span>Text</span><kbd>T</kbd></div>
-                <div className="shortcut-row"><span>Image Upload</span><kbd>I</kbd></div>
-                <div className="shortcut-row"><span>Undo</span><kbd>Ctrl + Z</kbd></div>
-                <div className="shortcut-row"><span>Redo</span><kbd>Ctrl + Y</kbd></div>
-                <div className="shortcut-row"><span>Toggle This Help</span><kbd>?</kbd></div>
+                {SHORTCUT_DEFINITIONS.map((shortcut) => (
+                  <div key={shortcut.id} className="shortcut-row">
+                    <span>{shortcut.label}</span>
+                    <kbd>{shortcut.keyLabel}</kbd>
+                  </div>
+                ))}
               </div>
             </div>
             <div className="modal-actions">
