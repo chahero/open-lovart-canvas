@@ -51,6 +51,8 @@ const App = () => {
   const [isLibrarySaving, setIsLibrarySaving] = useState(false);
   const [pendingDeleteAsset, setPendingDeleteAsset] = useState(null);
   const [isDeletingAsset, setIsDeletingAsset] = useState(false);
+  const [activePanelTab, setActivePanelTab] = useState('properties');
+  const [activePropsTab, setActivePropsTab] = useState('image');
   const [settingsOptions, setSettingsOptions] = useState({
     workflows: [],
     ocrModels: [],
@@ -99,6 +101,20 @@ const App = () => {
     canvas.upperCanvasEl.style.cursor = '';
     if (eraserCursorRef.current) eraserCursorRef.current.style.display = 'none';
   }, [activeTool]);
+  useEffect(() => {
+    if (!selectedObject) return;
+    if (selectedObject.type === 'i-text' || selectedObject.type === 'text') {
+      setActivePropsTab('text');
+      return;
+    }
+    if (selectedObject.type === 'rect') {
+      setActivePropsTab('shape');
+      return;
+    }
+    if (selectedObject.type === 'FabricImage' || selectedObject.type === 'image') {
+      setActivePropsTab('image');
+    }
+  }, [selectedObject?.type]);
 
   const syncUI = useCallback(() => {
     const canvas = fabricCanvas.current;
@@ -1496,6 +1512,10 @@ const App = () => {
     setRenamingId(null);
   };
 
+  const selectedIsText = selectedObject?.type === 'i-text' || selectedObject?.type === 'text';
+  const selectedIsShape = selectedObject?.type === 'rect';
+  const selectedIsImage = selectedObject?.type === 'FabricImage' || selectedObject?.type === 'image';
+
   // --- HTML Sub-components ---
   const Sidebar = () => (
     <aside className="sidebar">
@@ -1505,13 +1525,9 @@ const App = () => {
       <button className={`tool-btn ${activeTool === 'eraser' ? 'active' : ''}`} onClick={() => setActiveTool('eraser')} title="Pixel Eraser"><Eraser size={20} /></button>
       <button className={`tool-btn ${activeTool === 'mark' ? 'active' : ''}`} onClick={() => setActiveTool('mark')} title="Mark (M)"><Target size={22} /></button>
       <div className="sidebar-divider" />
-      <button className={`tool-btn ${showAiInput ? 'active' : ''}`} onClick={() => setShowAiInput(!showAiInput)} title="Magic Generate"><Sparkles size={22} /></button>
       <button className="tool-btn" onClick={addRect}><Square size={22} /></button>
       <button className="tool-btn" onClick={addText}><TypeIcon size={22} /></button>
-      <div style={{ flexGrow: 1 }} />
       <label className="tool-btn" title="Image"><ImageIcon size={22} /><input type="file" hidden accept="image/*" onChange={(e) => addImage(e.target.files[0])} /></label>
-      <button className="tool-btn" onClick={() => setShowGrid(!showGrid)}><Grid size={22} color={showGrid ? "var(--accent)" : "currentColor"} /></button>
-      <button className="tool-btn" onClick={() => setShowSettingsModal(true)}><Settings size={22} /></button>
     </aside>
   );
 
@@ -1525,32 +1541,13 @@ const App = () => {
         </div>
       </div>
       <div className="topbar-actions">
-        <button
-          className="action-tag"
-          onClick={() => setShowRemoveBgConfirm(true)}
-          disabled={isAiProcessing || !(selectedObject?.type === 'FabricImage' || selectedObject?.type === 'image')}
-        >
-          <Sparkles size={14} /> {isAiProcessing ? 'Removing...' : 'Remove Bg'}
+        <button className={`action-tag ${showAiInput ? 'active' : ''}`} onClick={() => setShowAiInput(!showAiInput)}>
+          <Sparkles size={14} /> Magic Generate
         </button>
-        <button className="action-tag"><Maximize size={14} /> Upscale</button>
-        <button
-          className="action-tag"
-          onClick={segmentObject}
-          disabled={isAiProcessing || !(selectedObject?.type === 'FabricImage' || selectedObject?.type === 'image')}
-        >
-          <Scissors size={14} /> {isAiProcessing ? 'Segmenting...' : 'Segment'}
-        </button>
-        <button
-          className="action-tag"
-          onClick={convertToText}
-          disabled={isAiProcessing || !(selectedObject?.type === 'FabricImage' || selectedObject?.type === 'image')}
-        >
-          <TypeIcon size={14} /> {isAiProcessing ? 'Converting...' : 'To Text'}
-        </button>
-        <button className="action-tag" onClick={groupSelected}><Group size={14} /> Group</button>
-        <button className="action-tag" onClick={ungroupSelected}><Ungroup size={14} /> Ungroup</button>
       </div>
       <div className="topbar-right">
+        <button className="action-tag" onClick={() => setShowGrid(!showGrid)}><Grid size={14} /> Grid</button>
+        <button className="action-tag" onClick={() => setShowSettingsModal(true)}><Settings size={14} /> Settings</button>
         <button className="primary-btn"><Download size={16} /> Export</button>
       </div>
     </header>
@@ -1683,174 +1680,224 @@ const App = () => {
 
       {/* Control Panel */}
       <aside className="control-panel">
-        <div className="cp-section">
-          <h3 className="section-label">Alignment</h3>
-          <div className="align-grid">
-            <button onClick={() => align('left')}><AlignLeft size={18} /></button>
-            <button onClick={() => align('center-h')}><AlignCenter size={18} /></button>
-            <button onClick={() => align('right')}><AlignRight size={18} /></button>
-            <button onClick={() => align('top')}><AlignVerticalJustifyStart size={18} /></button>
-            <button onClick={() => align('center-v')}><AlignVerticalJustifyCenter size={18} /></button>
-            <button onClick={() => align('bottom')}><AlignVerticalJustifyEnd size={18} /></button>
-          </div>
+        <div className="panel-tabs">
+          <button className={`panel-tab ${activePanelTab === 'properties' ? 'active' : ''}`} onClick={() => setActivePanelTab('properties')}>Properties</button>
+          <button className={`panel-tab ${activePanelTab === 'library' ? 'active' : ''}`} onClick={() => setActivePanelTab('library')}>Library</button>
+          <button className={`panel-tab ${activePanelTab === 'layers' ? 'active' : ''}`} onClick={() => setActivePanelTab('layers')}>Layers</button>
         </div>
 
-        <div className="cp-section">
-          <h3 className="section-label">Properties</h3>
-          {selectedObject ? (
-            <div className="props-body">
-              <div className="prop-input-group">
-                <label>Opacity</label>
-                <input type="range" min="0" max="1" step="0.01" value={selectedObject.opacity} onChange={(e) => setProperty('opacity', parseFloat(e.target.value))} />
+        {activePanelTab === 'properties' && (
+          <>
+            <div className="cp-section">
+              <h3 className="section-label">Alignment</h3>
+              <div className="align-grid">
+                <button onClick={() => align('left')}><AlignLeft size={18} /></button>
+                <button onClick={() => align('center-h')}><AlignCenter size={18} /></button>
+                <button onClick={() => align('right')}><AlignRight size={18} /></button>
+                <button onClick={() => align('top')}><AlignVerticalJustifyStart size={18} /></button>
+                <button onClick={() => align('center-v')}><AlignVerticalJustifyCenter size={18} /></button>
+                <button onClick={() => align('bottom')}><AlignVerticalJustifyEnd size={18} /></button>
               </div>
+            </div>
 
-              {/* Text Controls */}
-              {(selectedObject.type === 'i-text' || selectedObject.type === 'text') && (
-                <div className="text-tools">
-                  <div className="prop-input-group">
-                    <label>Font</label>
-                    <select value={selectedObject.fontFamily} onChange={(e) => setProperty('fontFamily', e.target.value)}>
-                      <option value="Inter">Inter (Sans)</option>
-                      <option value="Roboto">Roboto</option>
-                      <option value="Georgia">Georgia (Serif)</option>
-                      <option value="Montserrat">Montserrat</option>
-                      <option value="Playfair Display">Playfair Display</option>
-                      <option value="Courier New">Monospace</option>
-                    </select>
+            <div className="cp-section">
+              <h3 className="section-label">Properties</h3>
+              {selectedObject ? (
+                <div className="props-body">
+                  <div className="props-subtabs">
+                    <button className={`props-subtab ${activePropsTab === 'text' ? 'active' : ''}`} onClick={() => setActivePropsTab('text')}>Text</button>
+                    <button className={`props-subtab ${activePropsTab === 'image' ? 'active' : ''}`} onClick={() => setActivePropsTab('image')}>Image</button>
+                    <button className={`props-subtab ${activePropsTab === 'shape' ? 'active' : ''}`} onClick={() => setActivePropsTab('shape')}>Shape</button>
                   </div>
                   <div className="prop-input-group">
-                    <label>Font Size</label>
-                    <div className="modern-input-group">
-                      <button className="input-step-btn" onClick={() => setProperty('fontSize', Math.max(1, selectedObject.fontSize - 1))}>-</button>
-                      <input type="number" value={Math.round(selectedObject.fontSize)} onChange={(e) => setProperty('fontSize', parseInt(e.target.value) || 1)} />
-                      <button className="input-step-btn" onClick={() => setProperty('fontSize', selectedObject.fontSize + 1)}>+</button>
-                    </div>
+                    <label>Opacity</label>
+                    <input type="range" min="0" max="1" step="0.01" value={selectedObject.opacity} onChange={(e) => setProperty('opacity', parseFloat(e.target.value))} />
                   </div>
-                  <div className="prop-input-group">
-                    <label>Text Color</label>
-                    <input type="color" value={ensureHex(selectedObject.fill)} onChange={(e) => setProperty('fill', e.target.value)} />
-                  </div>
-                  <div className="flex-row">
-                    <button className={`toggle-btn ${selectedObject.fontWeight === 'bold' ? 'active' : ''}`} onClick={() => setProperty('fontWeight', selectedObject.fontWeight === 'bold' ? 'normal' : 'bold')}><Bold size={16} /></button>
-                    <button className={`toggle-btn ${selectedObject.fontStyle === 'italic' ? 'active' : ''}`} onClick={() => setProperty('fontStyle', selectedObject.fontStyle === 'italic' ? 'normal' : 'italic')}><Italic size={16} /></button>
-                  </div>
-                </div>
-              )}
 
-              {/* Shape Controls (Rect) */}
-              {selectedObject.type === 'rect' && (
-                <div className="shape-tools">
-                  <div className="prop-input-group">
-                    <label>Fill Color</label>
-                    <input type="color" value={ensureHex(selectedObject.fill)} onChange={(e) => setProperty('fill', e.target.value)} />
-                  </div>
-                </div>
-              )}
-
-              {/* Image Controls */}
-              {(selectedObject.type === 'FabricImage' || selectedObject.type === 'image') && (
-                <div className="image-tools">
-                  {activeTool === 'eraser' && (
-                    <div className="prop-input-group">
-                      <label>Eraser Size ({eraserSize}px)</label>
-                      <input
-                        type="range"
-                        min="6"
-                        max="140"
-                        step="1"
-                        value={eraserSize}
-                        onChange={(e) => setEraserSize(parseInt(e.target.value, 10) || 28)}
-                      />
+                  {activePropsTab === 'text' && selectedIsText && (
+                    <div className="text-tools">
+                      <div className="prop-input-group">
+                        <label>Font</label>
+                        <select value={selectedObject.fontFamily} onChange={(e) => setProperty('fontFamily', e.target.value)}>
+                          <option value="Inter">Inter (Sans)</option>
+                          <option value="Roboto">Roboto</option>
+                          <option value="Georgia">Georgia (Serif)</option>
+                          <option value="Montserrat">Montserrat</option>
+                          <option value="Playfair Display">Playfair Display</option>
+                          <option value="Courier New">Monospace</option>
+                        </select>
+                      </div>
+                      <div className="prop-input-group">
+                        <label>Font Size</label>
+                        <div className="modern-input-group">
+                          <button className="input-step-btn" onClick={() => setProperty('fontSize', Math.max(1, selectedObject.fontSize - 1))}>-</button>
+                          <input type="number" value={Math.round(selectedObject.fontSize)} onChange={(e) => setProperty('fontSize', parseInt(e.target.value) || 1)} />
+                          <button className="input-step-btn" onClick={() => setProperty('fontSize', selectedObject.fontSize + 1)}>+</button>
+                        </div>
+                      </div>
+                      <div className="prop-input-group">
+                        <label>Text Color</label>
+                        <input type="color" value={ensureHex(selectedObject.fill)} onChange={(e) => setProperty('fill', e.target.value)} />
+                      </div>
+                      <div className="flex-row">
+                        <button className={`toggle-btn ${selectedObject.fontWeight === 'bold' ? 'active' : ''}`} onClick={() => setProperty('fontWeight', selectedObject.fontWeight === 'bold' ? 'normal' : 'bold')}><Bold size={16} /></button>
+                        <button className={`toggle-btn ${selectedObject.fontStyle === 'italic' ? 'active' : ''}`} onClick={() => setProperty('fontStyle', selectedObject.fontStyle === 'italic' ? 'normal' : 'italic')}><Italic size={16} /></button>
+                      </div>
                     </div>
                   )}
-                  <div className="prop-input-group">
-                    <label>Brightness</label>
-                    <input type="range" min="-1" max="1" step="0.1" value={selectedObject.brightness} onChange={(e) => applyImageFilter('brightness', parseFloat(e.target.value))} />
-                  </div>
-                  <div className="check-row">
-                    <input type="checkbox" checked={selectedObject.grayscale} onChange={(e) => applyImageFilter('grayscale', e.target.checked)} />
-                    <span>Grayscale</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : <div className="no-selection-msg">Select an object</div>}
-        </div>
+                  {activePropsTab === 'text' && !selectedIsText && (
+                    <div className="no-selection-msg">Select a text layer for Text controls</div>
+                  )}
 
-        <div className="cp-section">
-          <h3 className="section-label">Library</h3>
-          <div className="library-actions">
-            <button
-              className="library-save-btn"
-              onClick={saveSelectedImageToLibrary}
-              disabled={isLibrarySaving || !(selectedObject?.type === 'FabricImage' || selectedObject?.type === 'image')}
-            >
-              {isLibrarySaving ? 'Saving...' : 'Save Selected Image'}
-            </button>
+                  {activePropsTab === 'shape' && selectedIsShape && (
+                    <div className="shape-tools">
+                      <div className="prop-input-group">
+                        <label>Fill Color</label>
+                        <input type="color" value={ensureHex(selectedObject.fill)} onChange={(e) => setProperty('fill', e.target.value)} />
+                      </div>
+                    </div>
+                  )}
+                  {activePropsTab === 'shape' && !selectedIsShape && (
+                    <div className="no-selection-msg">Select a shape layer for Shape controls</div>
+                  )}
+
+                  {activePropsTab === 'image' && selectedIsImage && (
+                    <div className="image-tools">
+                      <div className="props-action-list">
+                        <button
+                          className="action-tag"
+                          onClick={() => setShowRemoveBgConfirm(true)}
+                          disabled={isAiProcessing}
+                        >
+                          <Sparkles size={14} /> {isAiProcessing ? 'Removing...' : 'Remove Bg'}
+                        </button>
+                        <button
+                          className="action-tag"
+                          onClick={segmentObject}
+                          disabled={isAiProcessing}
+                        >
+                          <Scissors size={14} /> {isAiProcessing ? 'Segmenting...' : 'Segment'}
+                        </button>
+                        <button
+                          className="action-tag"
+                          onClick={convertToText}
+                          disabled={isAiProcessing}
+                        >
+                          <TypeIcon size={14} /> {isAiProcessing ? 'Converting...' : 'To Text'}
+                        </button>
+                        <button className="action-tag" onClick={groupSelected}><Group size={14} /> Group</button>
+                        <button className="action-tag" onClick={ungroupSelected}><Ungroup size={14} /> Ungroup</button>
+                      </div>
+                      {activeTool === 'eraser' && (
+                        <div className="prop-input-group">
+                          <label>Eraser Size ({eraserSize}px)</label>
+                          <input
+                            type="range"
+                            min="6"
+                            max="140"
+                            step="1"
+                            value={eraserSize}
+                            onChange={(e) => setEraserSize(parseInt(e.target.value, 10) || 28)}
+                          />
+                        </div>
+                      )}
+                      <div className="prop-input-group">
+                        <label>Brightness</label>
+                        <input type="range" min="-1" max="1" step="0.1" value={selectedObject.brightness} onChange={(e) => applyImageFilter('brightness', parseFloat(e.target.value))} />
+                      </div>
+                      <div className="check-row">
+                        <input type="checkbox" checked={selectedObject.grayscale} onChange={(e) => applyImageFilter('grayscale', e.target.checked)} />
+                        <span>Grayscale</span>
+                      </div>
+                    </div>
+                  )}
+                  {activePropsTab === 'image' && !selectedIsImage && (
+                    <div className="no-selection-msg">Select an image layer for Image controls</div>
+                  )}
+                </div>
+              ) : <div className="no-selection-msg">Select an object</div>}
+            </div>
+          </>
+        )}
+
+        {activePanelTab === 'library' && (
+          <div className="cp-section">
+            <h3 className="section-label">Library</h3>
+            <div className="library-actions">
+              <button
+                className="library-save-btn"
+                onClick={saveSelectedImageToLibrary}
+                disabled={isLibrarySaving || !(selectedObject?.type === 'FabricImage' || selectedObject?.type === 'image')}
+              >
+                {isLibrarySaving ? 'Saving...' : 'Save Selected Image'}
+              </button>
+            </div>
+            {isLibraryLoading ? (
+              <div className="no-selection-msg">Loading library...</div>
+            ) : assetLibrary.length === 0 ? (
+              <div className="no-selection-msg">No saved assets yet</div>
+            ) : (
+              <div className="library-grid">
+                {assetLibrary.map((asset) => (
+                  <div
+                    key={asset.id}
+                    className="library-card"
+                  >
+                    <button
+                      className="library-insert-btn"
+                      onClick={() => addImageFromAsset(asset)}
+                      title={asset.name || 'Asset'}
+                    >
+                      <img src={toAbsoluteAssetUrl(asset.url)} alt={asset.name || 'Asset'} loading="lazy" />
+                      <span>{asset.name || 'Untitled'}</span>
+                    </button>
+                    <button
+                      className="library-delete-btn"
+                      title="Delete asset"
+                      onClick={() => setPendingDeleteAsset(asset)}
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          {isLibraryLoading ? (
-            <div className="no-selection-msg">Loading library...</div>
-          ) : assetLibrary.length === 0 ? (
-            <div className="no-selection-msg">No saved assets yet</div>
-          ) : (
-            <div className="library-grid">
-              {assetLibrary.map((asset) => (
+        )}
+
+        {activePanelTab === 'layers' && (
+          <div className="cp-section layers-section">
+            <h3 className="section-label">Layers</h3>
+            <div className="layers-list-modern">
+              {layers.map((l, idx) => (
                 <div
-                  key={asset.id}
-                  className="library-card"
+                  key={l.id}
+                  className={`layer-row ${l.active ? 'active' : ''} ${draggedLayerIndex === idx ? 'dragging' : ''} ${dragOverIndex === idx ? 'drag-over' : ''}`}
+                  draggable
+                  onDragStart={() => setDraggedLayerIndex(idx)}
+                  onDragOver={(e) => { e.preventDefault(); setDragOverIndex(idx); }}
+                  onDragEnd={() => { setDraggedLayerIndex(null); setDragOverIndex(null); }}
+                  onDrop={(e) => { e.preventDefault(); moveLayerByDrag(draggedLayerIndex, idx); setDragOverIndex(null); }}
+                  onClick={() => { fabricCanvas.current.setActiveObject(l.object); fabricCanvas.current.requestRenderAll(); }}
                 >
-                  <button
-                    className="library-insert-btn"
-                    onClick={() => addImageFromAsset(asset)}
-                    title={asset.name || 'Asset'}
-                  >
-                    <img src={toAbsoluteAssetUrl(asset.url)} alt={asset.name || 'Asset'} loading="lazy" />
-                    <span>{asset.name || 'Untitled'}</span>
-                  </button>
-                  <button
-                    className="library-delete-btn"
-                    title="Delete asset"
-                    onClick={() => setPendingDeleteAsset(asset)}
-                  >
-                    <Trash2 size={12} />
-                  </button>
+                  <div className="l-order-btns">
+                    <button onClick={(e) => { e.stopPropagation(); reorderLayer(l.object, 'up'); }}><ChevronUp size={12} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); reorderLayer(l.object, 'down'); }}><ChevronDown size={12} /></button>
+                  </div>
+                  {renamingId === l.id ? (
+                    <input autoFocus onBlur={(e) => renameLayer(l.id, e.target.value)} onKeyDown={(e) => e.key === 'Enter' && renameLayer(l.id, e.target.value)} defaultValue={l.name} className="rename-input" />
+                  ) : (
+                    <span onDoubleClick={() => setRenamingId(l.id)} className="l-name">{l.name}</span>
+                  )}
+                  <div className="l-actions">
+                    <button onClick={(e) => { e.stopPropagation(); l.object.visible = !l.object.visible; fabricCanvas.current.requestRenderAll(); syncUI(); }}>{l.visible ? <Eye size={14} /> : <EyeOff size={14} />}</button>
+                    <button onClick={(e) => { e.stopPropagation(); fabricCanvas.current.remove(l.object); }}><Trash2 size={14} /></button>
+                  </div>
                 </div>
               ))}
             </div>
-          )}
-        </div>
-
-        <div className="cp-section layers-section">
-          <h3 className="section-label">Layers</h3>
-          <div className="layers-list-modern">
-            {layers.map((l, idx) => (
-              <div
-                key={l.id}
-                className={`layer-row ${l.active ? 'active' : ''} ${draggedLayerIndex === idx ? 'dragging' : ''} ${dragOverIndex === idx ? 'drag-over' : ''}`}
-                draggable
-                onDragStart={() => setDraggedLayerIndex(idx)}
-                onDragOver={(e) => { e.preventDefault(); setDragOverIndex(idx); }}
-                onDragEnd={() => { setDraggedLayerIndex(null); setDragOverIndex(null); }}
-                onDrop={(e) => { e.preventDefault(); moveLayerByDrag(draggedLayerIndex, idx); setDragOverIndex(null); }}
-                onClick={() => { fabricCanvas.current.setActiveObject(l.object); fabricCanvas.current.requestRenderAll(); }}
-              >
-                <div className="l-order-btns">
-                  <button onClick={(e) => { e.stopPropagation(); reorderLayer(l.object, 'up'); }}><ChevronUp size={12} /></button>
-                  <button onClick={(e) => { e.stopPropagation(); reorderLayer(l.object, 'down'); }}><ChevronDown size={12} /></button>
-                </div>
-                {renamingId === l.id ? (
-                  <input autoFocus onBlur={(e) => renameLayer(l.id, e.target.value)} onKeyDown={(e) => e.key === 'Enter' && renameLayer(l.id, e.target.value)} defaultValue={l.name} className="rename-input" />
-                ) : (
-                  <span onDoubleClick={() => setRenamingId(l.id)} className="l-name">{l.name}</span>
-                )}
-                <div className="l-actions">
-                  <button onClick={(e) => { e.stopPropagation(); l.object.visible = !l.object.visible; fabricCanvas.current.requestRenderAll(); syncUI(); }}>{l.visible ? <Eye size={14} /> : <EyeOff size={14} />}</button>
-                  <button onClick={(e) => { e.stopPropagation(); fabricCanvas.current.remove(l.object); }}><Trash2 size={14} /></button>
-                </div>
-              </div>
-            ))}
           </div>
-        </div>
+        )}
       </aside>
 
       {showSettingsModal && (
@@ -1987,26 +2034,8 @@ const App = () => {
         <span>OPEN LOVART CANVAS v0.2</span>
         <span>{fabricCanvas.current?.width}x{fabricCanvas.current?.height}</span>
         <span>Zoom: {Math.round(zoom * 100)}%</span>
-        <button
-          className="action-tag footer-action-btn"
-          onClick={resetZoom}
-          disabled={zoom === 1}
-        >
-          <Search size={12} /> Reset
-        </button>
-        <button
-          className="action-tag footer-action-btn"
-          onClick={fitCanvas}
-        >
-          <Maximize size={12} /> Fit
-        </button>
-        <button
-          className="action-tag footer-action-btn"
-          onClick={fitSelection}
-          disabled={!fabricCanvas.current || fabricCanvas.current.getActiveObjects().length === 0}
-        >
-          <Search size={12} /> Fit Selection
-        </button>
+        <span>Tool: {activeTool.toUpperCase()}</span>
+        <span>Tip: Hold Space to Pan</span>
       </footer>
 
       {/* Confirmation Modal */}

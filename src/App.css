@@ -141,6 +141,12 @@ body {
   border-radius: 0;
 }
 
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .action-tag {
   padding: 6px 12px;
   background: #f4f7fb;
@@ -159,6 +165,12 @@ body {
 .action-tag:hover {
   background: #e8eef8;
   color: #111827;
+}
+
+.action-tag.active {
+  border: 1px solid rgba(107, 92, 255, 0.45);
+  background: #eeecff;
+  color: #4c3fc6;
 }
 
 .primary-btn {
@@ -371,6 +383,30 @@ body {
   margin-bottom: 32px;
 }
 
+.panel-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.panel-tab {
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: #f4f7fb;
+  color: #64748b;
+  border-radius: 10px;
+  padding: 8px 6px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.panel-tab.active {
+  border-color: rgba(107, 92, 255, 0.55);
+  background: #eeecff;
+  color: #4c3fc6;
+}
+
 .section-label {
   font-size: 11px;
   text-transform: uppercase;
@@ -407,6 +443,35 @@ body {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.props-subtabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.props-subtab {
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: #f4f7fb;
+  color: #64748b;
+  border-radius: 9px;
+  padding: 8px 6px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.props-subtab.active {
+  border-color: rgba(107, 92, 255, 0.55);
+  background: #eeecff;
+  color: #4c3fc6;
+}
+
+.props-action-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .prop-input-group {
