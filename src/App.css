@@ -147,6 +147,23 @@ body {
   gap: 8px;
 }
 
+.export-format-select {
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: #f4f7fb;
+  color: #1f2937;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.export-format-select:focus {
+  outline: none;
+  border-color: rgba(100, 116, 139, 0.8);
+}
+
 .action-tag {
   padding: 6px 12px;
   background: #f4f7fb;

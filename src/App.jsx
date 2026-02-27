@@ -67,6 +67,7 @@ const App = () => {
   const [activePropsTab, setActivePropsTab] = useState('image');
   const [showAlignmentHint, setShowAlignmentHint] = useState(false);
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
+  const [exportFormat, setExportFormat] = useState('png');
   const [settingsOptions, setSettingsOptions] = useState({
     workflows: [],
     ocrModels: [],
@@ -1005,6 +1006,120 @@ const App = () => {
     saveHistory();
   };
 
+  const getSelectedBounds = () => {
+    const canvas = fabricCanvas.current;
+    if (!canvas) return null;
+
+    const activeObjects = canvas.getActiveObjects().filter((obj) => obj.id !== 'world-bounds' && obj.id !== 'temp-prompt-box');
+    if (!activeObjects || activeObjects.length === 0) return null;
+
+    let minLeft = Infinity;
+    let minTop = Infinity;
+    let maxRight = -Infinity;
+    let maxBottom = -Infinity;
+    let hasBounds = false;
+
+    for (const obj of activeObjects) {
+      const bounds = obj.getBoundingRect(true, true);
+      if (!bounds || !isFinite(bounds.left) || !isFinite(bounds.top) || !isFinite(bounds.width) || !isFinite(bounds.height)) {
+        continue;
+      }
+      minLeft = Math.min(minLeft, bounds.left);
+      minTop = Math.min(minTop, bounds.top);
+      maxRight = Math.max(maxRight, bounds.left + bounds.width);
+      maxBottom = Math.max(maxBottom, bounds.top + bounds.height);
+      hasBounds = true;
+    }
+
+    if (!hasBounds) return null;
+
+    return {
+      left: minLeft,
+      top: minTop,
+      width: Math.max(1, Math.ceil(maxRight - minLeft)),
+      height: Math.max(1, Math.ceil(maxBottom - minTop)),
+    };
+  };
+
+  const exportSelectedArea = () => {
+    const canvas = fabricCanvas.current;
+    if (!canvas) return;
+
+    const selectedCount = canvas.getActiveObjects().length;
+    if (selectedCount === 0) {
+      alert('Select at least one layer to export.');
+      return;
+    }
+
+    const bounds = getSelectedBounds();
+    if (!bounds) {
+      alert('Could not determine selection bounds.');
+      return;
+    }
+
+    const selectedObjects = canvas.getActiveObjects().filter((obj) => obj.id !== 'world-bounds' && obj.id !== 'temp-prompt-box');
+    if (!selectedObjects.length) {
+      alert('Could not determine selectable objects for export.');
+      return;
+    }
+
+    const normalizedFormat = exportFormat === 'jpg' ? 'jpeg' : exportFormat;
+    const ext = exportFormat === 'jpg' ? 'jpg' : exportFormat;
+    const quality = normalizedFormat === 'png' ? 1 : 0.92;
+    const activeObject = canvas.getActiveObject();
+    let dataURL = null;
+
+    if (activeObject && activeObject.type?.toLowerCase() === 'activeselection') {
+      try {
+        dataURL = activeObject.toDataURL({
+          format: normalizedFormat,
+          quality,
+        });
+      } catch (err) {
+        dataURL = null;
+      }
+    }
+
+    if (!dataURL && activeObject && selectedCount === 1) {
+      try {
+        dataURL = activeObject.toDataURL({
+          format: normalizedFormat,
+          quality,
+        });
+      } catch (err) {
+        dataURL = null;
+      }
+    }
+
+    if (!dataURL) {
+      const exportSet = new Set(selectedObjects);
+      dataURL = canvas.toDataURL({
+        format: normalizedFormat,
+        quality,
+        left: bounds.left,
+        top: bounds.top,
+        width: bounds.width,
+        height: bounds.height,
+        filter: (obj) => exportSet.has(obj),
+      });
+    }
+
+    if (!dataURL) {
+      alert('Export failed to generate image data.');
+      return;
+    }
+
+    const link = document.createElement('a');
+    try {
+      link.href = dataURL;
+      link.download = `selection-export.${ext}`;
+      link.click();
+    } catch (err) {
+      alert('Export failed. Please try again.');
+    }
+
+  };
+
   const canAlignSelection = () => {
     const activeObjects = fabricCanvas.current?.getActiveObjects?.() || [];
     return activeObjects.length >= 2;
@@ -1695,7 +1810,18 @@ const App = () => {
       <div className="topbar-right">
         <button className="action-tag" onClick={() => setShowGrid(!showGrid)}><Grid size={14} /> Grid</button>
         <button className="action-tag" onClick={() => setShowSettingsModal(true)}><Settings size={14} /> Settings</button>
-        <button className="primary-btn"><Download size={16} /> Export</button>
+        <select
+          className="export-format-select"
+          value={exportFormat}
+          onChange={(e) => setExportFormat(e.target.value)}
+        >
+          <option value="png">PNG</option>
+          <option value="jpg">JPG</option>
+          <option value="webp">WEBP</option>
+        </select>
+        <button className="primary-btn" onClick={exportSelectedArea}>
+          <Download size={16} /> Export
+        </button>
       </div>
     </header>
   );
