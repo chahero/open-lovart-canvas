@@ -46,6 +46,9 @@ const App = () => {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [isSettingsLoading, setIsSettingsLoading] = useState(false);
   const [isSettingsSaving, setIsSettingsSaving] = useState(false);
+  const [assetLibrary, setAssetLibrary] = useState([]);
+  const [isLibraryLoading, setIsLibraryLoading] = useState(false);
+  const [isLibrarySaving, setIsLibrarySaving] = useState(false);
   const [settingsOptions, setSettingsOptions] = useState({
     workflows: [],
     ocrModels: [],
@@ -288,6 +291,111 @@ const App = () => {
       alert('Settings save failed: ' + err.message);
     } finally {
       setIsSettingsSaving(false);
+    }
+  };
+
+  const toAbsoluteAssetUrl = useCallback((assetUrl) => {
+    if (!assetUrl) return '';
+    if (/^https?:\/\//i.test(assetUrl)) return assetUrl;
+    return `${API_BASE_URL}${assetUrl.startsWith('/') ? '' : '/'}${assetUrl}`;
+  }, []);
+
+  const loadAssetLibrary = useCallback(async () => {
+    setIsLibraryLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/assets`);
+      if (!response.ok) throw new Error('Failed to load assets');
+      const data = await response.json();
+      setAssetLibrary(Array.isArray(data.items) ? data.items : []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsLibraryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAssetLibrary();
+  }, [loadAssetLibrary]);
+
+  const addImageFromAsset = async (asset) => {
+    if (!asset?.url) return;
+    const canvas = fabricCanvas.current;
+    if (!canvas) return;
+
+    try {
+      const img = await fabric.FabricImage.fromURL(toAbsoluteAssetUrl(asset.url));
+      if ((img.width || 0) > 500) img.scaleToWidth(500);
+      img.name = asset.name || 'Library Asset';
+      canvas.add(img);
+      const sceneCenter = getCreationCenterInScene();
+      img.setPositionByOrigin(sceneCenter, 'center', 'center');
+      img.setCoords();
+      canvas.setActiveObject(img);
+      setActiveTool('select');
+      canvas.requestRenderAll();
+      saveHistory();
+    } catch (err) {
+      console.error(err);
+      alert('Failed to insert library asset: ' + err.message);
+    }
+  };
+
+  const saveSelectedImageToLibrary = async () => {
+    const canvas = fabricCanvas.current;
+    const active = canvas?.getActiveObject();
+    if (!active || (active.type !== 'FabricImage' && active.type !== 'image')) {
+      alert('Select an image layer first.');
+      return;
+    }
+
+    setIsLibrarySaving(true);
+    try {
+      const dataURL = active.toDataURL({ format: 'png' });
+      const blob = await (await fetch(dataURL)).blob();
+      const fileName = `${(active.name || 'asset').replace(/[^a-z0-9-_]+/gi, '_')}.png`;
+      const formData = new FormData();
+      formData.append('file', blob, fileName);
+      formData.append('source', 'canvas');
+      formData.append('name', active.name || 'Canvas Asset');
+
+      const response = await fetch(`${API_BASE_URL}/assets/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Failed to save asset');
+      }
+
+      const data = await response.json();
+      const saved = data.item;
+      if (saved) setAssetLibrary((prev) => [saved, ...prev]);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to save library asset: ' + err.message);
+    } finally {
+      setIsLibrarySaving(false);
+    }
+  };
+
+  const deleteAssetFromLibrary = async (assetId) => {
+    if (!assetId) return;
+    const approved = window.confirm('Delete this asset from library?');
+    if (!approved) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/assets/${assetId}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Failed to delete asset');
+      }
+      setAssetLibrary((prev) => prev.filter((item) => item.id !== assetId));
+    } catch (err) {
+      console.error(err);
+      alert('Failed to delete library asset: ' + err.message);
     }
   };
 
@@ -1621,6 +1729,49 @@ const App = () => {
               )}
             </div>
           ) : <div className="no-selection-msg">Select an object</div>}
+        </div>
+
+        <div className="cp-section">
+          <h3 className="section-label">Library</h3>
+          <div className="library-actions">
+            <button
+              className="library-save-btn"
+              onClick={saveSelectedImageToLibrary}
+              disabled={isLibrarySaving || !(selectedObject?.type === 'FabricImage' || selectedObject?.type === 'image')}
+            >
+              {isLibrarySaving ? 'Saving...' : 'Save Selected Image'}
+            </button>
+          </div>
+          {isLibraryLoading ? (
+            <div className="no-selection-msg">Loading library...</div>
+          ) : assetLibrary.length === 0 ? (
+            <div className="no-selection-msg">No saved assets yet</div>
+          ) : (
+            <div className="library-grid">
+              {assetLibrary.map((asset) => (
+                <div
+                  key={asset.id}
+                  className="library-card"
+                >
+                  <button
+                    className="library-insert-btn"
+                    onClick={() => addImageFromAsset(asset)}
+                    title={asset.name || 'Asset'}
+                  >
+                    <img src={toAbsoluteAssetUrl(asset.url)} alt={asset.name || 'Asset'} loading="lazy" />
+                    <span>{asset.name || 'Untitled'}</span>
+                  </button>
+                  <button
+                    className="library-delete-btn"
+                    title="Delete asset"
+                    onClick={() => deleteAssetFromLibrary(asset.id)}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="cp-section layers-section">

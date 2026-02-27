@@ -5,10 +5,12 @@ import json
 import httpx
 import base64
 import asyncio
+import time
 from typing import List, Optional
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from dotenv import load_dotenv
 from rembg import remove, new_session
@@ -28,6 +30,9 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 WORKFLOWS_DIR = os.path.join(BASE_DIR, "workflows")
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
+ASSET_LIBRARY_DIR = os.path.join(BASE_DIR, "assets", "library")
+ASSET_LIBRARY_FILES_DIR = os.path.join(ASSET_LIBRARY_DIR, "files")
+ASSET_LIBRARY_INDEX_PATH = os.path.join(ASSET_LIBRARY_DIR, "index.json")
 
 DEFAULT_OLLAMA_URL = os.getenv("OLLAMA_URL", "http://192.168.0.67:11434")
 DEFAULT_COMFYUI_URL = os.getenv("COMFYUI_URL", "http://localhost:8188")
@@ -114,6 +119,26 @@ def build_config_response() -> dict:
         },
     }
 
+def ensure_asset_library_storage():
+    os.makedirs(ASSET_LIBRARY_FILES_DIR, exist_ok=True)
+    if not os.path.exists(ASSET_LIBRARY_INDEX_PATH):
+        with open(ASSET_LIBRARY_INDEX_PATH, "w", encoding="utf-8") as f:
+            json.dump([], f, ensure_ascii=False, indent=2)
+
+def read_asset_library_index() -> List[dict]:
+    ensure_asset_library_storage()
+    try:
+        with open(ASSET_LIBRARY_INDEX_PATH, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        return payload if isinstance(payload, list) else []
+    except Exception:
+        return []
+
+def write_asset_library_index(items: List[dict]):
+    ensure_asset_library_storage()
+    with open(ASSET_LIBRARY_INDEX_PATH, "w", encoding="utf-8") as f:
+        json.dump(items, f, ensure_ascii=False, indent=2)
+
 # Initialize rembg session for persistent model loading
 try:
     rembg_session = new_session()
@@ -134,6 +159,8 @@ except Exception as e:
     sam3_predictor = None
 
 app = FastAPI(title="Open Lovart AI Orchestrator")
+ensure_asset_library_storage()
+app.mount("/assets/files", StaticFiles(directory=ASSET_LIBRARY_FILES_DIR), name="asset_files")
 
 app.add_middleware(
     CORSMiddleware,
@@ -230,6 +257,87 @@ async def update_config(data: dict):
     write_persisted_config()
 
     return {"status": "success", **build_config_response()}
+
+@app.get("/assets")
+async def list_assets():
+    items = read_asset_library_index()
+    items = sorted(items, key=lambda x: x.get("created_at", ""), reverse=True)
+    return {"items": items}
+
+@app.post("/assets/upload")
+async def upload_asset(
+    file: UploadFile = File(...),
+    source: str = Form("manual"),
+    prompt: str = Form(""),
+    name: str = Form(""),
+):
+    try:
+        if not file.content_type or not file.content_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail="Only image files can be added to library.")
+
+        raw = await file.read()
+        if not raw:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+        ext = os.path.splitext(file.filename or "")[1].lower()
+        if ext not in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"]:
+            ext = ".png"
+
+        asset_id = uuid.uuid4().hex
+        saved_name = f"{asset_id}{ext}"
+        saved_path = os.path.join(ASSET_LIBRARY_FILES_DIR, saved_name)
+        with open(saved_path, "wb") as out:
+            out.write(raw)
+
+        width, height = None, None
+        try:
+            with Image.open(io.BytesIO(raw)) as img:
+                width, height = img.size
+        except Exception:
+            pass
+
+        item = {
+            "id": asset_id,
+            "name": (name or file.filename or saved_name).strip(),
+            "source": (source or "manual").strip(),
+            "prompt": (prompt or "").strip(),
+            "created_at": int(time.time() * 1000),
+            "filename": saved_name,
+            "url": f"/assets/files/{saved_name}",
+            "content_type": file.content_type,
+            "width": width,
+            "height": height,
+        }
+
+        items = read_asset_library_index()
+        items.insert(0, item)
+        write_asset_library_index(items)
+        return {"item": item}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save asset: {str(e)}")
+
+@app.delete("/assets/{asset_id}")
+async def delete_asset(asset_id: str):
+    items = read_asset_library_index()
+    target = next((x for x in items if x.get("id") == asset_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Asset not found.")
+
+    filename = target.get("filename", "")
+    if filename:
+        safe_name = os.path.basename(filename)
+        file_path = os.path.join(ASSET_LIBRARY_FILES_DIR, safe_name)
+        if os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Failed to delete asset file: {str(e)}")
+
+    next_items = [x for x in items if x.get("id") != asset_id]
+    write_asset_library_index(next_items)
+    return {"status": "success", "deleted_id": asset_id}
 
 @app.post("/remove-bg")
 async def remove_background(file: UploadFile = File(...)):

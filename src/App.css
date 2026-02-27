@@ -630,6 +630,103 @@ input[type="color"]::-webkit-color-swatch {
   border-radius: 12px;
 }
 
+.library-actions {
+  display: flex;
+  margin-bottom: 12px;
+}
+
+.library-save-btn {
+  width: 100%;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: #eef4ff;
+  color: #1e293b;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.library-save-btn:hover:not(:disabled) {
+  border-color: #6b5cff;
+  color: #332b9b;
+  background: #e8e9ff;
+}
+
+.library-save-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.library-card {
+  position: relative;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: #f8faff;
+  border-radius: 10px;
+  overflow: hidden;
+  text-align: left;
+  padding: 0;
+  color: #0f172a;
+}
+
+.library-card:hover {
+  border-color: #6b5cff;
+}
+
+.library-insert-btn {
+  width: 100%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+
+.library-card img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  display: block;
+  background: #e2e8f0;
+}
+
+.library-card span {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 7px 8px;
+}
+
+.library-delete-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(255, 255, 255, 0.9);
+  color: #64748b;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.library-delete-btn:hover {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.6);
+}
+
 /* Global Floating */
 .floating-context {
   position: fixed;
