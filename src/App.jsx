@@ -84,9 +84,11 @@ const App = () => {
     if (!canvas) return;
     if (activeTool === 'eraser') {
       canvas.selection = false;
+      canvas.skipTargetFind = true;
       canvas.upperCanvasEl.style.cursor = 'crosshair';
       return;
     }
+    canvas.skipTargetFind = false;
     if (activeTool === 'pan') {
       canvas.upperCanvasEl.style.cursor = 'grab';
       return;
@@ -722,18 +724,24 @@ const App = () => {
     const handleMouseDown = (opt) => {
       if (activeToolRef.current === 'eraser') {
         const active = canvas.getActiveObject();
-        const target = isImageObject(opt.target) ? opt.target : (isImageObject(active) ? active : null);
+        const pointer = canvas.getScenePoint(opt.e);
+        const hoveredImage = canvas.getObjects()
+          .slice()
+          .reverse()
+          .find((obj) => isImageObject(obj) && obj.containsPoint(pointer));
+        const target = isImageObject(active) ? active : hoveredImage;
         if (!target) {
           canvas.upperCanvasEl.style.cursor = 'not-allowed';
           return;
         }
+        opt.e.preventDefault();
+        opt.e.stopPropagation();
         canvas.setActiveObject(target);
         setContextMenu(null);
         canvas.selection = false;
         canvas.upperCanvasEl.style.cursor = 'crosshair';
         isErasing = true;
         eraserTarget = target;
-        const pointer = canvas.getScenePoint(opt.e);
         eraseAtScenePoint(target, pointer);
         return;
       }
