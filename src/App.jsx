@@ -1470,7 +1470,7 @@ const App = () => {
     const canvas = fabricCanvas.current;
     if (!canvas) return;
     const rect = new fabric.Rect({
-      width: 150, height: 150, rx: 12, ry: 12,
+      width: 150, height: 150, rx: 0, ry: 0,
       fill: 'rgba(59, 130, 246, 0.5)', stroke: '#3b82f6', strokeWidth: 2,
       strokeUniform: true,
     });
