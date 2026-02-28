@@ -2235,7 +2235,8 @@ const App = () => {
             </div>
 
             {isSettingsLoading && (
-              <div className="no-selection-msg" style={{ marginBottom: 8, padding: '8px 0', fontSize: 12 }}>
+              <div className="settings-loading-inline">
+                <span className="settings-loading-spinner" aria-hidden="true" />
                 Loading latest settings...
               </div>
             )}

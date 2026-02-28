@@ -1073,6 +1073,25 @@ input[type="color"]::-webkit-color-swatch {
   word-break: break-word;
 }
 
+.settings-loading-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 6px 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.settings-loading-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(148, 163, 184, 0.35);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: settingsSpin 0.8s linear infinite;
+}
+
 .asset-name-break {
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -1157,6 +1176,16 @@ input[type="color"]::-webkit-color-swatch {
   to {
     opacity: 1;
     transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes settingsSpin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
   }
 }
 
