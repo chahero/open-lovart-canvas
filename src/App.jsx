@@ -2416,7 +2416,7 @@ const App = () => {
                       title={asset.name || 'Asset'}
                     >
                       <img src={toAbsoluteAssetUrl(asset.url)} alt={asset.name || 'Asset'} loading="lazy" />
-                      <span>{asset.name || 'Untitled'}</span>
+                      <span className="library-item-label">{asset.name || 'Untitled'}</span>
                     </button>
                     <button
                       className="library-delete-btn"
