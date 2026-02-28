@@ -18,7 +18,7 @@ const SHORTCUT_DEFINITIONS = [
   { id: 'select', label: 'Selection', key: 'v', keyLabel: 'V' },
   { id: 'pan', label: 'Hand / Pan', key: 'h', keyLabel: 'H' },
   { id: 'panHold', label: 'Pan (Hold)', keyLabel: 'Space', displayOnly: true },
-  { id: 'mark', label: 'Mark', key: 'm', keyLabel: 'M' },
+  { id: 'mark', label: 'Mask Brush', key: 'm', keyLabel: 'M' },
   { id: 'eraser', label: 'Eraser', key: 'e', keyLabel: 'E' },
   { id: 'rect', label: 'Rectangle', key: 'r', keyLabel: 'R' },
   { id: 'circle', label: 'Circle', key: 'o', keyLabel: 'O' },
@@ -35,8 +35,8 @@ const App = () => {
   const [layers, setLayers] = useState([]);
   const [selectedObject, setSelectedObject] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
-  const [marks, setMarks] = useState([]);
-  const [promptBox, setPromptBox] = useState(null); // [x1, y1, x2, y2]
+  const [maskStrokes, setMaskStrokes] = useState([]);
+  const [maskTargetId, setMaskTargetId] = useState(null);
   const [showAiInput, setShowAiInput] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
@@ -55,6 +55,7 @@ const App = () => {
   const [segmentTarget, setSegmentTarget] = useState(null);
   const [aiPrompt, setAiPrompt] = useState('');
   const [eraserSize, setEraserSize] = useState(28);
+  const [maskBrushSize, setMaskBrushSize] = useState(36);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [isSettingsLoading, setIsSettingsLoading] = useState(false);
   const [isSettingsSaving, setIsSettingsSaving] = useState(false);
@@ -84,23 +85,28 @@ const App = () => {
   const fabricCanvas = useRef(null);
   const canvasContainerRef = useRef(null);
   const activeToolRef = useRef(activeTool);
-  const marksRef = useRef(marks);
+  const maskStrokesRef = useRef(maskStrokes);
+  const maskTargetIdRef = useRef(maskTargetId);
   const isSavingHistory = useRef(false);
   const alignmentHintTimerRef = useRef(null);
   const dragCounter = useRef(0);
   const isSpacePanRef = useRef(false);
   const eraserSizeRef = useRef(eraserSize);
+  const maskBrushSizeRef = useRef(maskBrushSize);
   const eraserCursorRef = useRef(null);
+  const maskOverlayRef = useRef(null);
   const imageInputRef = useRef(null);
 
   // --- Sync Refs ---
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
-  useEffect(() => { marksRef.current = marks; }, [marks]);
+  useEffect(() => { maskStrokesRef.current = maskStrokes; }, [maskStrokes]);
+  useEffect(() => { maskTargetIdRef.current = maskTargetId; }, [maskTargetId]);
   useEffect(() => { eraserSizeRef.current = eraserSize; }, [eraserSize]);
+  useEffect(() => { maskBrushSizeRef.current = maskBrushSize; }, [maskBrushSize]);
   useEffect(() => {
     const canvas = fabricCanvas.current;
     if (!canvas) return;
-    if (activeTool === 'eraser') {
+    if (activeTool === 'eraser' || activeTool === 'mark') {
       canvas.selection = false;
       canvas.skipTargetFind = true;
       canvas.upperCanvasEl.style.cursor = 'none';
@@ -136,7 +142,7 @@ const App = () => {
     if (!canvas) return;
 
     const objs = canvas.getObjects()
-      .filter(obj => obj.id !== 'temp-prompt-box' && obj.id !== 'world-bounds')
+      .filter(obj => obj.id !== 'world-bounds')
       .map((obj, index) => ({
         id: obj.id || (obj.id = Math.random().toString(36).substr(2, 9)),
         name: obj.name || `${obj.type} ${index + 1}`,
@@ -193,6 +199,69 @@ const App = () => {
     artboard.style.setProperty('--dot-offset-x', `${vpt[4]}px`);
     artboard.style.setProperty('--dot-offset-y', `${vpt[5]}px`);
   }, []);
+
+  const drawMaskOverlay = useCallback(() => {
+    const canvas = fabricCanvas.current;
+    const overlay = maskOverlayRef.current;
+    if (!canvas || !overlay) return;
+
+    const width = Math.max(1, Math.round(canvas.getWidth() || 1));
+    const height = Math.max(1, Math.round(canvas.getHeight() || 1));
+    if (overlay.width !== width) overlay.width = width;
+    if (overlay.height !== height) overlay.height = height;
+
+    const ctx = overlay.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, width, height);
+
+    const strokes = maskStrokesRef.current || [];
+    if (strokes.length === 0) {
+      overlay.style.display = 'none';
+      return;
+    }
+
+    overlay.style.display = 'block';
+
+    const vpt = canvas.viewportTransform || [1, 0, 0, 1, 0, 0];
+    const approxZoom = Math.max(0.001, Math.hypot(vpt[0] || 1, vpt[1] || 0));
+
+    const toScreenPoint = (pt) => ({
+      x: pt.x * vpt[0] + pt.y * vpt[2] + vpt[4],
+      y: pt.x * vpt[1] + pt.y * vpt[3] + vpt[5],
+    });
+
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    for (const stroke of strokes) {
+      if (!stroke?.points?.length) continue;
+      const lineWidth = Math.max(2, (stroke.size || 1) * approxZoom);
+      const first = toScreenPoint(stroke.points[0]);
+
+      ctx.strokeStyle = 'rgba(16, 185, 129, 0.65)';
+      ctx.fillStyle = 'rgba(16, 185, 129, 0.28)';
+      ctx.lineWidth = lineWidth;
+
+      if (stroke.points.length === 1) {
+        ctx.beginPath();
+        ctx.arc(first.x, first.y, lineWidth / 2, 0, Math.PI * 2);
+        ctx.fill();
+        continue;
+      }
+
+      ctx.beginPath();
+      ctx.moveTo(first.x, first.y);
+      for (let i = 1; i < stroke.points.length; i++) {
+        const p = toScreenPoint(stroke.points[i]);
+        ctx.lineTo(p.x, p.y);
+      }
+      ctx.stroke();
+    }
+  }, []);
+
+  useEffect(() => {
+    drawMaskOverlay();
+  }, [drawMaskOverlay, maskStrokes, zoom]);
 
   const getCreationCenterInScene = useCallback(() => {
     const canvas = fabricCanvas.current;
@@ -572,6 +641,7 @@ const App = () => {
     canvas.on('selection:created', syncUI);
     canvas.on('selection:updated', syncUI);
     canvas.on('selection:cleared', syncUI);
+    canvas.on('after:render', drawMaskOverlay);
 
     // Zoom & Pan
     canvas.on('mouse:wheel', (opt) => {
@@ -589,14 +659,17 @@ const App = () => {
 
     let isPanning = false;
     let isErasing = false;
+    let isMaskDrawing = false;
     let eraserTarget = null;
+    let currentMaskStrokeId = null;
+    let lastMaskPoint = null;
 
     const isImageObject = (obj) => obj && (obj.type === 'FabricImage' || obj.type === 'image');
     const hideEraserCursor = () => {
       if (eraserCursorRef.current) eraserCursorRef.current.style.display = 'none';
     };
-    const moveEraserCursor = (e) => {
-      if (activeToolRef.current !== 'eraser' || !eraserCursorRef.current) return;
+    const moveBrushCursor = (e) => {
+      if ((activeToolRef.current !== 'eraser' && activeToolRef.current !== 'mark') || !eraserCursorRef.current) return;
       const rect = canvas.upperCanvasEl.getBoundingClientRect();
       eraserCursorRef.current.style.left = `${e.clientX - rect.left}px`;
       eraserCursorRef.current.style.top = `${e.clientY - rect.top}px`;
@@ -688,28 +761,7 @@ const App = () => {
       });
     };
 
-    const handleMouseMove = (opt) => {
-      const active = canvas.getActiveObject();
-      if (!active || active.id !== 'temp-prompt-box') return;
-
-      const pointer = canvas.getScenePoint(opt.e);
-      const originX = active._originX; // Retrieve stashed origin
-      const originY = active._originY;
-
-      active.set({
-        left: Math.min(pointer.x, originX),
-        top: Math.min(pointer.y, originY),
-        width: Math.abs(pointer.x - originX),
-        height: Math.abs(pointer.y - originY),
-        originX: 'left',
-        originY: 'top'
-      });
-
-      active.setCoords();
-      canvas.renderAll();
-    };
-
-    const handleMouseUp = (opt) => {
+    const handleMouseUp = () => {
       if (isErasing) {
         isErasing = false;
         const target = eraserTarget;
@@ -722,47 +774,33 @@ const App = () => {
         return;
       }
 
+      if (isMaskDrawing) {
+        isMaskDrawing = false;
+        currentMaskStrokeId = null;
+        lastMaskPoint = null;
+        setMaskStrokes([...(maskStrokesRef.current || [])]);
+        canvas.selection = activeToolRef.current !== 'mark';
+        canvas.upperCanvasEl.style.cursor = activeToolRef.current === 'mark'
+          ? 'none'
+          : (isSpacePanRef.current || activeToolRef.current === 'pan' ? 'grab' : '');
+        return;
+      }
+
       if (isPanning) {
         isPanning = false;
         canvas.setViewportTransform(canvas.viewportTransform);
         syncArtboardPattern();
         canvas.upperCanvasEl.style.cursor = isSpacePanRef.current || activeToolRef.current === 'pan' ? 'grab' : '';
       }
-      const active = canvas.getActiveObject();
-      if (active && active.id === 'temp-prompt-box') {
-        const stashedTarget = active._potentialTarget;
-
-        if (active.width < 5 && active.height < 5) {
-          // It's a click, not a drag - create a Point mark
-          const newMark = { id: Date.now(), x: active.left, y: active.top };
-          setMarks(prev => [...prev, newMark]);
-          canvas.remove(active);
-        } else {
-          // It's a box - save as promptBox
-          setPromptBox([
-            active.left, active.top,
-            active.left + active.width, active.top + active.height
-          ]);
-        }
-
-        // Restore image selection
-        if (stashedTarget) {
-          canvas.setActiveObject(stashedTarget);
-        }
-
-        canvas.selection = true;
-        canvas.renderAll();
-        syncUI();
-      }
       isPanning = false;
-      canvas.selection = true;
+      canvas.selection = activeToolRef.current !== 'mark' && activeToolRef.current !== 'eraser';
     };
 
     const handleMouseDown = (opt) => {
       if (activeToolRef.current === 'eraser') {
         const active = canvas.getActiveObject();
         const pointer = canvas.getScenePoint(opt.e);
-        moveEraserCursor(opt.e);
+        moveBrushCursor(opt.e);
         const hoveredImage = canvas.getObjects()
           .slice()
           .reverse()
@@ -784,7 +822,56 @@ const App = () => {
         return;
       }
 
-      const clickedCanvasObject = opt.target && opt.target.id !== 'world-bounds' && opt.target.id !== 'temp-prompt-box';
+      if (activeToolRef.current === 'mark' && !isSpacePanRef.current && opt.button !== 3) {
+        const pointer = canvas.getScenePoint(opt.e);
+        moveBrushCursor(opt.e);
+
+        const images = canvas.getObjects().filter((o) => isImageObject(o));
+        const hittedImage = opt.target && isImageObject(opt.target)
+          ? opt.target
+          : images.find((img) => img.containsPoint(pointer));
+        const finalTarget = hittedImage || (images.length === 1 ? images[0] : null);
+
+        if (!finalTarget) {
+          canvas.upperCanvasEl.style.cursor = 'none';
+          return;
+        }
+
+        if (!finalTarget.id) {
+          finalTarget.id = Math.random().toString(36).slice(2, 11);
+        }
+
+        const prevTargetId = maskTargetIdRef.current;
+        const existingStrokes = maskStrokesRef.current || [];
+        if (prevTargetId && prevTargetId !== finalTarget.id && existingStrokes.length > 0) {
+          maskStrokesRef.current = [];
+          setMaskStrokes([]);
+        }
+
+        setMaskTargetId(finalTarget.id);
+        canvas.setActiveObject(finalTarget);
+        setContextMenu(null);
+        canvas.selection = false;
+        canvas.upperCanvasEl.style.cursor = 'none';
+        opt.e.preventDefault();
+        opt.e.stopPropagation();
+
+        isMaskDrawing = true;
+        currentMaskStrokeId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        lastMaskPoint = pointer;
+
+        const stroke = {
+          id: currentMaskStrokeId,
+          size: Math.max(2, maskBrushSizeRef.current || 1),
+          points: [{ x: pointer.x, y: pointer.y }],
+        };
+        maskStrokesRef.current = [...(maskStrokesRef.current || []), stroke];
+        setMaskStrokes(maskStrokesRef.current);
+        drawMaskOverlay();
+        return;
+      }
+
+      const clickedCanvasObject = opt.target && opt.target.id !== 'world-bounds';
       if (
         clickedCanvasObject &&
         opt.button !== 3 &&
@@ -808,49 +895,6 @@ const App = () => {
         canvas.lastPosY = opt.e.clientY;
         canvas.upperCanvasEl.style.cursor = 'grabbing';
       }
-      if (activeToolRef.current === 'mark') {
-        const pointer = canvas.getScenePoint(opt.e);
-
-        // Find the image under the cursor (or the only image)
-        const images = canvas.getObjects().filter(o => o.type === 'FabricImage' || o.type === 'image');
-        const hittedImage = opt.target && (opt.target.type === 'FabricImage' || opt.target.type === 'image')
-          ? opt.target
-          : images.find(img => img.containsPoint(pointer));
-
-        const finalTarget = hittedImage || (images.length === 1 ? images[0] : null);
-
-        if (finalTarget) {
-          canvas.setActiveObject(finalTarget);
-          // We don't call syncUI yet because we're about to change active object to the rect
-        }
-
-        // Remove old box to prevent duplicate IDs/Keys
-        const existing = canvas.getObjects().find(o => o.id === 'temp-prompt-box');
-        if (existing) canvas.remove(existing);
-
-        const rect = new fabric.Rect({
-          left: pointer.x,
-          top: pointer.y,
-          width: 0,
-          height: 0,
-          fill: 'transparent',
-          stroke: '#34d399',
-          strokeWidth: 2,
-          selectable: false,
-          id: 'temp-prompt-box',
-          originX: 'left',
-          originY: 'top'
-        });
-        canvas.add(rect);
-        // Stash the potential target image AND origin point for standard dragging
-        rect._potentialTarget = finalTarget;
-        rect._originX = pointer.x;
-        rect._originY = pointer.y;
-
-        canvas.setActiveObject(rect);
-        canvas.selection = false;
-        return;
-      }
       if (opt.button === 3 && opt.target) {
         canvas.setActiveObject(opt.target);
         setContextMenu({ x: opt.e.clientX, y: opt.e.clientY, target: opt.target });
@@ -872,15 +916,36 @@ const App = () => {
         canvas.lastPosX = e.clientX;
         canvas.lastPosY = e.clientY;
       }
-      if (activeToolRef.current === 'eraser') {
-        moveEraserCursor(opt.e);
+      if ((activeToolRef.current === 'eraser' || activeToolRef.current === 'mark') && !isPanning && !isSpacePanRef.current) {
+        moveBrushCursor(opt.e);
       }
       if (isErasing && eraserTarget) {
         const pointer = canvas.getScenePoint(opt.e);
         eraseAtScenePoint(eraserTarget, pointer);
         return;
       }
-      handleMouseMove(opt); // Call the new handler
+      if (isMaskDrawing && currentMaskStrokeId) {
+        const pointer = canvas.getScenePoint(opt.e);
+        if (lastMaskPoint) {
+          const dx = pointer.x - lastMaskPoint.x;
+          const dy = pointer.y - lastMaskPoint.y;
+          if ((dx * dx + dy * dy) < 1.0) {
+            return;
+          }
+        }
+        lastMaskPoint = pointer;
+
+        const strokes = maskStrokesRef.current || [];
+        const nextStrokes = strokes.map((stroke) => {
+          if (stroke.id !== currentMaskStrokeId) return stroke;
+          return {
+            ...stroke,
+            points: [...stroke.points, { x: pointer.x, y: pointer.y }],
+          };
+        });
+        maskStrokesRef.current = nextStrokes;
+        drawMaskOverlay();
+      }
     });
 
     canvas.on('mouse:up', handleMouseUp); // Call the new handler
@@ -950,9 +1015,13 @@ const App = () => {
           canvas.setViewportTransform(canvas.viewportTransform);
           syncArtboardPattern();
           canvas.selection = true;
-          canvas.upperCanvasEl.style.cursor = activeToolRef.current === 'pan' ? 'grab' : '';
+          canvas.upperCanvasEl.style.cursor = activeToolRef.current === 'pan'
+            ? 'grab'
+            : (activeToolRef.current === 'mark' || activeToolRef.current === 'eraser' ? 'none' : '');
         } else {
-          canvas.upperCanvasEl.style.cursor = activeToolRef.current === 'pan' ? 'grab' : '';
+          canvas.upperCanvasEl.style.cursor = activeToolRef.current === 'pan'
+            ? 'grab'
+            : (activeToolRef.current === 'mark' || activeToolRef.current === 'eraser' ? 'none' : '');
         }
       }
     };
@@ -970,6 +1039,7 @@ const App = () => {
         clearTimeout(alignmentHintTimerRef.current);
       }
       isSpacePanRef.current = false;
+      canvas.off('after:render', drawMaskOverlay);
       canvas.upperCanvasEl.removeEventListener('mouseleave', hideEraserCursor);
       hideEraserCursor();
       canvas.upperCanvasEl.style.cursor = '';
@@ -1001,7 +1071,7 @@ const App = () => {
     const canvas = fabricCanvas.current;
     if (!canvas) return null;
 
-    const activeObjects = canvas.getActiveObjects().filter((obj) => obj.id !== 'world-bounds' && obj.id !== 'temp-prompt-box');
+    const activeObjects = canvas.getActiveObjects().filter((obj) => obj.id !== 'world-bounds');
     if (!activeObjects || activeObjects.length === 0) return null;
 
     let minLeft = Infinity;
@@ -1048,7 +1118,7 @@ const App = () => {
       return;
     }
 
-    const selectedObjects = canvas.getActiveObjects().filter((obj) => obj.id !== 'world-bounds' && obj.id !== 'temp-prompt-box');
+    const selectedObjects = canvas.getActiveObjects().filter((obj) => obj.id !== 'world-bounds');
     if (!selectedObjects.length) {
       alert('Could not determine selectable objects for export.');
       return;
@@ -1502,20 +1572,28 @@ const App = () => {
 
   const segmentObject = async () => {
     const canvas = fabricCanvas.current;
+    const strokes = maskStrokesRef.current || [];
+    if (strokes.length === 0) {
+      alert("Use Mask Brush (M) to paint the target area first.");
+      return;
+    }
+
     let active = canvas.getActiveObject();
 
-    // If no image is selected, try to find an image that contains the marks
+    // If no image is selected, infer target image from brush strokes
     if (!active || (active.type !== 'FabricImage' && active.type !== 'image')) {
       const images = canvas.getObjects().filter(o => o.type === 'FabricImage' || o.type === 'image');
-
-      // Try to find an image that overlaps with the marks
       let targetImage = null;
-      if (marks.length > 0) {
-        const firstMark = new fabric.Point(marks[0].x, marks[0].y);
-        targetImage = images.find(img => img.containsPoint(firstMark));
-      } else if (promptBox) {
-        const boxCenter = new fabric.Point((promptBox[0] + promptBox[2]) / 2, (promptBox[1] + promptBox[3]) / 2);
-        targetImage = images.find(img => img.containsPoint(boxCenter));
+
+      if (maskTargetIdRef.current) {
+        targetImage = images.find((img) => img.id === maskTargetIdRef.current);
+      }
+      if (!targetImage) {
+        const firstStrokePoint = strokes[0]?.points?.[0];
+        if (firstStrokePoint) {
+          const firstPoint = new fabric.Point(firstStrokePoint.x, firstStrokePoint.y);
+          targetImage = images.find((img) => img.containsPoint(firstPoint));
+        }
       }
 
       if (targetImage) {
@@ -1544,6 +1622,12 @@ const App = () => {
 
   const executeSegment = async (textPrompt) => {
     const canvas = fabricCanvas.current;
+    const strokes = maskStrokesRef.current || [];
+    if (strokes.length === 0) {
+      alert("Mask brush data not found. Paint the image and try again.");
+      return;
+    }
+
     const active = segmentTarget; // Use the captured target
     if (!active) return;
 
@@ -1555,39 +1639,51 @@ const App = () => {
       const originalScaleX = active.scaleX;
       const originalScaleY = active.scaleY;
 
-      // 2. Map coordinates
-      const points = marks.map(m => {
-        const point = new fabric.Point(m.x, m.y);
-        const matrix = active.calcTransformMatrix();
-        const invertedMatrix = fabric.util.invertTransform(matrix);
-        const localPt = fabric.util.transformPoint(point, invertedMatrix);
-        const x = active.originX === 'left' ? localPt.x : localPt.x + active.width / 2;
-        const y = active.originY === 'top' ? localPt.y : localPt.y + active.height / 2;
-        return [Math.round(x), Math.round(y)];
-      });
+      // 2. Map brush strokes to local prompt points for SAM
+      const matrix = active.calcTransformMatrix();
+      const invertedMatrix = fabric.util.invertTransform(matrix);
+      const offsetX = active.originX === 'left' ? 0 : active.width / 2;
+      const offsetY = active.originY === 'top' ? 0 : active.height / 2;
+      const width = Math.max(1, active.width || 1);
+      const height = Math.max(1, active.height || 1);
 
-      let bboxes = [];
-      if (promptBox) {
-        const matrix = active.calcTransformMatrix();
-        const invertedMatrix = fabric.util.invertTransform(matrix);
+      const flattenedPoints = strokes.flatMap((stroke) => (
+        (stroke.points || []).map((pt) => ({
+          x: pt.x,
+          y: pt.y,
+          size: stroke.size || maskBrushSizeRef.current || 1,
+        }))
+      ));
+      const stride = Math.max(1, Math.ceil(flattenedPoints.length / 180));
+      const sampledPoints = flattenedPoints.filter((_, idx) => idx % stride === 0);
+      const avgBrushScene = sampledPoints.reduce((sum, p) => sum + (p.size || 1), 0) / Math.max(1, sampledPoints.length);
+      const brushPaddingLocal = Math.max(2, avgBrushScene / Math.max(Math.abs(active.scaleX || 1), 0.0001));
 
-        const p1 = fabric.util.transformPoint(new fabric.Point(promptBox[0], promptBox[1]), invertedMatrix);
-        const p2 = fabric.util.transformPoint(new fabric.Point(promptBox[2], promptBox[3]), invertedMatrix);
+      const localPoints = sampledPoints
+        .map((p) => {
+          const scenePoint = new fabric.Point(p.x, p.y);
+          const localPt = fabric.util.transformPoint(scenePoint, invertedMatrix);
+          return {
+            x: localPt.x + offsetX,
+            y: localPt.y + offsetY,
+          };
+        })
+        .filter((p) => p.x >= 0 && p.y >= 0 && p.x <= width && p.y <= height);
 
-        const offsetX = active.originX === 'left' ? 0 : active.width / 2;
-        const offsetY = active.originY === 'top' ? 0 : active.height / 2;
-
-        bboxes = [[
-          Math.round(Math.min(p1.x, p2.x) + offsetX),
-          Math.round(Math.min(p1.y, p2.y) + offsetY),
-          Math.round(Math.max(p1.x, p2.x) + offsetX),
-          Math.round(Math.max(p1.y, p2.y) + offsetY)
-        ]];
+      if (localPoints.length === 0) {
+        throw new Error('Mask does not overlap selected image.');
       }
 
+      const MAX_PROMPT_POINTS = 96;
+      const pointStride = Math.max(1, Math.ceil(localPoints.length / MAX_PROMPT_POINTS));
+      const points = localPoints
+        .filter((_, idx) => idx % pointStride === 0)
+        .slice(0, MAX_PROMPT_POINTS)
+        .map((p) => [Math.round(p.x), Math.round(p.y)]);
+      const labels = points.map(() => 1);
+
       console.log('===== [SAM 3 Debug] =====');
-      console.log('Points:', points);
-      console.log('Boxes:', bboxes);
+      console.log('Point count:', points.length);
 
       // 3. Export clean image (no scale/angle)
       active.set({ angle: 0, scaleX: 1, scaleY: 1 });
@@ -1600,8 +1696,7 @@ const App = () => {
       const formData = new FormData();
       formData.append('file', blob, 'image.png');
       formData.append('points', JSON.stringify(points));
-      formData.append('labels', JSON.stringify(points.map(() => 1)));
-      formData.append('bboxes', JSON.stringify(bboxes));
+      formData.append('labels', JSON.stringify(labels));
       if (textPrompt) formData.append('text', textPrompt);
 
       const response = await fetch(`${API_BASE_URL}/segment`, {
@@ -1630,7 +1725,7 @@ const App = () => {
       canvas.add(img);
       canvas.setActiveObject(img);
 
-      setMarks([]);
+      clearMarks();
       syncUI();
       saveHistory();
     } catch (err) {
@@ -1721,17 +1816,11 @@ const App = () => {
   };
 
   const clearMarks = () => {
-    setMarks([]);
-    setPromptBox(null);
-    if (fabricCanvas.current) {
-      const box = fabricCanvas.current.getObjects().find(o => o.id === 'temp-prompt-box');
-      if (box) fabricCanvas.current.remove(box);
-      fabricCanvas.current.renderAll();
-    }
-  };
-
-  const removeMark = (id) => {
-    setMarks(prev => prev.filter(m => m.id !== id));
+    maskStrokesRef.current = [];
+    setMaskStrokes([]);
+    setMaskTargetId(null);
+    setSegmentTarget(null);
+    drawMaskOverlay();
   };
 
   // --- Layer Management ---
@@ -1779,6 +1868,8 @@ const App = () => {
   const selectedIsText = selectedObject?.type === 'i-text' || selectedObject?.type === 'text';
   const selectedIsShape = selectedObject?.type === 'rect' || selectedObject?.type === 'circle' || selectedObject?.type === 'ellipse';
   const selectedIsImage = selectedObject?.type === 'FabricImage' || selectedObject?.type === 'image';
+  const hasMaskData = maskStrokes.length > 0;
+  const maskPointCount = maskStrokes.reduce((sum, stroke) => sum + (stroke.points?.length || 0), 0);
 
   // --- HTML Sub-components ---
   const Sidebar = () => (
@@ -1787,7 +1878,7 @@ const App = () => {
       <button className={`tool-btn ${activeTool === 'pan' ? 'active' : ''}`} onClick={() => setActiveTool('pan')} title="Hand (H / Space)"><Hand size={22} /></button>
       <button className={`tool-btn ${activeTool === 'select' ? 'active' : ''}`} onClick={() => setActiveTool('select')} title="Selection (V)"><MousePointer2 size={22} /></button>
       <button className={`tool-btn ${activeTool === 'eraser' ? 'active' : ''}`} onClick={() => setActiveTool('eraser')} title="Pixel Eraser (E)"><Eraser size={20} /></button>
-      <button className={`tool-btn ${activeTool === 'mark' ? 'active' : ''}`} onClick={() => setActiveTool('mark')} title="Mark (M)"><Target size={22} /></button>
+      <button className={`tool-btn ${activeTool === 'mark' ? 'active' : ''}`} onClick={() => setActiveTool('mark')} title="Mask Brush (M)"><Target size={22} /></button>
       <div className="sidebar-divider" />
       <button className="tool-btn" onClick={addRect} title="Rectangle (R)"><Square size={22} /></button>
       <button className="tool-btn" onClick={addCircle} title="Circle (O)"><Circle size={20} /></button>
@@ -1900,39 +1991,33 @@ const App = () => {
         }}>
         <div className="canvas-shadow">
           <canvas ref={canvasRef} />
+          <canvas ref={maskOverlayRef} className="mask-overlay-canvas" />
           <div
             ref={eraserCursorRef}
             className="eraser-cursor"
             style={{
-              width: `${eraserSize * 2}px`,
-              height: `${eraserSize * 2}px`,
-              display: activeTool === 'eraser' ? 'block' : 'none'
+              width: `${(activeTool === 'mark' ? maskBrushSize : eraserSize) * 2}px`,
+              height: `${(activeTool === 'mark' ? maskBrushSize : eraserSize) * 2}px`,
+              borderColor: activeTool === 'mark' ? 'rgba(16, 185, 129, 0.95)' : 'rgba(59, 130, 246, 0.95)',
+              boxShadow: activeTool === 'mark'
+                ? 'inset 0 0 0 1px rgba(255, 255, 255, 0.9), 0 0 0 1px rgba(16, 185, 129, 0.2)'
+                : 'inset 0 0 0 1px rgba(255, 255, 255, 0.9)',
+              display: activeTool === 'eraser' || activeTool === 'mark' ? 'block' : 'none'
             }}
           />
-          {marks.map((m, i) => (
-            <div
-              key={m.id}
-              className="mark-badge-canvas"
-              title="Click to remove"
-              onClick={(e) => { e.stopPropagation(); removeMark(m.id); }}
-              style={{
-                left: (m.x * fabricCanvas.current.getZoom()) + fabricCanvas.current.viewportTransform[4],
-                top: (m.y * fabricCanvas.current.getZoom()) + fabricCanvas.current.viewportTransform[5]
-              }}>{i + 1}</div>
-          ))}
         </div>
         {isDragging && <div className="drop-overlay">Drop images to upload</div>}
 
         {/* Floating Quick AI */}
-        {(marks.length > 0 || promptBox) && (
+        {hasMaskData && (
           <div className="quick-ai-panel">
             <div className="ai-counts">
-              {marks.length > 0 && <span>{marks.length} Points</span>}
-              {promptBox && <span>Area Selected</span>}
+              <span>Mask Ready</span>
+              <span>{maskPointCount} samples</span>
             </div>
             <div className="v-div" />
             <button className="ai-action" onClick={segmentObject}>Segment</button>
-            <button className="ai-action secondary" onClick={clearMarks}>Clear All</button>
+            <button className="ai-action secondary" onClick={clearMarks}>Clear Mask</button>
           </div>
         )}
       </main>
@@ -2115,6 +2200,19 @@ const App = () => {
                             step="1"
                             value={eraserSize}
                             onChange={(e) => setEraserSize(parseInt(e.target.value, 10) || 28)}
+                          />
+                        </div>
+                      )}
+                      {activeTool === 'mark' && (
+                        <div className="prop-input-group">
+                          <label>Mask Brush Size ({maskBrushSize}px)</label>
+                          <input
+                            type="range"
+                            min="6"
+                            max="180"
+                            step="1"
+                            value={maskBrushSize}
+                            onChange={(e) => setMaskBrushSize(parseInt(e.target.value, 10) || 36)}
                           />
                         </div>
                       )}
@@ -2417,7 +2515,7 @@ const App = () => {
             </div>
             <div className="modal-text">
               <h3>Segment Object</h3>
-              <p>Type what you want to extract from the image.</p>
+              <p>Paint a mask with M, then optionally type what you want to extract.</p>
               <div className="modal-input-group">
                 <input
                   type="text"
@@ -2428,12 +2526,10 @@ const App = () => {
                   onKeyDown={(e) => e.key === 'Enter' && executeSegment(segmentText)}
                   autoFocus
                 />
-                {(marks.length > 0 || promptBox) && (
+                {hasMaskData && (
                   <p className="mark-status">
                     <Target size={12} style={{ marginRight: 4 }} />
-                    {marks.length > 0 ? `${marks.length} points` : ''}
-                    {marks.length > 0 && promptBox ? ' & ' : ''}
-                    {promptBox ? 'Area Selection' : ''} will be used
+                    Brush mask ({maskPointCount} samples) will be used
                   </p>
                 )}
               </div>
@@ -2449,7 +2545,7 @@ const App = () => {
               <button
                 className="modal-btn confirm segment"
                 onClick={() => executeSegment(segmentText)}
-                disabled={isAiProcessing || (!segmentText && marks.length === 0 && !promptBox)}
+                disabled={isAiProcessing || (!segmentText && !hasMaskData)}
               >
                 {isAiProcessing ? 'Processing...' : 'Segment'}
               </button>

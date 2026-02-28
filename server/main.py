@@ -406,8 +406,11 @@ async def segment_object(
             print("Mode: Concept Segmentation (SAM3SemanticPredictor)")
             sam3_predictor.set_image(img_np)
             query_args = {"text": [text]}
-            if pts: query_args["points"] = pts; query_args["labels"] = lbls
-            if boxes: query_args["bboxes"] = boxes
+            if pts:
+                query_args["points"] = pts
+                query_args["labels"] = lbls
+            elif boxes:
+                query_args["bboxes"] = boxes
             results = sam3_predictor(**query_args)
         else:
             # Single Object Mode (SAM 2 Compatibility)
@@ -417,12 +420,12 @@ async def segment_object(
                 "device": "cuda" if torch.cuda.is_available() else "cpu",
                 "conf": 0.25
             }
-            if boxes:
-                # SAM.predict expects bboxes=[x1, y1, x2, y2] or list of lists
-                predict_args["bboxes"] = boxes[0] if len(boxes) == 1 else boxes
             if pts:
                 predict_args["points"] = pts
                 predict_args["labels"] = lbls
+            elif boxes:
+                # SAM.predict expects bboxes=[x1, y1, x2, y2] or list of lists
+                predict_args["bboxes"] = boxes[0] if len(boxes) == 1 else boxes
             
             results = sam3_model.predict(**predict_args)
         
