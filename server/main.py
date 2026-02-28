@@ -33,11 +33,31 @@ CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 ASSET_LIBRARY_DIR = os.path.join(BASE_DIR, "assets", "library")
 ASSET_LIBRARY_FILES_DIR = os.path.join(ASSET_LIBRARY_DIR, "files")
 ASSET_LIBRARY_INDEX_PATH = os.path.join(ASSET_LIBRARY_DIR, "index.json")
+MODELS_DIR = os.path.join(BASE_DIR, "models")
 
 DEFAULT_OLLAMA_URL = os.getenv("OLLAMA_URL", "http://192.168.0.67:11434")
 DEFAULT_COMFYUI_URL = os.getenv("COMFYUI_URL", "http://localhost:8188")
 DEFAULT_WORKFLOW = os.getenv("GENERATE_WORKFLOW", "image_qwen_image_2512_with_2steps_lora.json")
 DEFAULT_VISION_MODEL = os.getenv("VISION_MODEL", "llama3.2-vision")
+
+def resolve_path_from_base(raw_path: str, fallback_relative_path: str) -> str:
+    """
+    Resolve model paths relative to server base dir unless absolute path is provided.
+    """
+    path = (raw_path or "").strip()
+    if not path:
+        path = fallback_relative_path
+    if os.path.isabs(path):
+        return path
+    return os.path.join(BASE_DIR, path)
+
+SAM3_MODEL_PATH = resolve_path_from_base(
+    os.getenv("SAM3_MODEL_PATH", ""),
+    os.path.join("models", "sam3.pt")
+)
+LEGACY_SAM3_MODEL_PATH = os.path.join(BASE_DIR, "sam3.pt")
+if not os.path.exists(SAM3_MODEL_PATH) and os.path.exists(LEGACY_SAM3_MODEL_PATH):
+    SAM3_MODEL_PATH = LEGACY_SAM3_MODEL_PATH
 
 def parse_model_list(raw: str, fallback: List[str]) -> List[str]:
     parsed = [m.strip() for m in (raw or "").split(",") if m.strip()]
@@ -143,13 +163,13 @@ except Exception:
 # Initialize SAM 3 models
 try:
     # 1. Standard SAM model for single object (points/boxes)
-    sam3_model = SAM("sam3.pt")
+    sam3_model = SAM(SAM3_MODEL_PATH)
     
     # 2. Semantic Predictor for concept segmentation (text)
-    overrides = dict(conf=0.25, task="segment", mode="predict", model="sam3.pt", save=False)
+    overrides = dict(conf=0.25, task="segment", mode="predict", model=SAM3_MODEL_PATH, save=False)
     sam3_predictor = SAM3SemanticPredictor(overrides=overrides)
 except Exception as e:
-    print(f"SAM 3 models initialization failed: {e}")
+    print(f"SAM 3 models initialization failed (path: {SAM3_MODEL_PATH}): {e}")
     sam3_model = None
     sam3_predictor = None
 
