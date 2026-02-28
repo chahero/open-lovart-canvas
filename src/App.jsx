@@ -71,14 +71,12 @@ const App = () => {
   const [settingsOptions, setSettingsOptions] = useState({
     workflows: [],
     ocrModels: [],
-    visionModels: [],
   });
   const [settingsDraft, setSettingsDraft] = useState({
     ollama: '',
     comfyui: '',
     workflow: '',
     ocrModel: '',
-    visionModel: '',
   });
 
   // --- Refs ---
@@ -252,12 +250,10 @@ const App = () => {
             comfyui: legacyConfig.comfyui || '',
             workflow: '',
             ocr_model: '',
-            vision_model: '',
           },
           options: {
             workflows: [],
             ocr_models: [],
-            vision_models: [],
           },
         };
       } else {
@@ -272,12 +268,10 @@ const App = () => {
         comfyui: config.comfyui || '',
         workflow: config.workflow || '',
         ocrModel: config.ocr_model || '',
-        visionModel: config.vision_model || '',
       });
       setSettingsOptions({
         workflows: options.workflows || [],
         ocrModels: options.ocr_models || [],
-        visionModels: options.vision_models || [],
       });
     } catch (err) {
       console.error(err);
@@ -302,7 +296,6 @@ const App = () => {
           comfyui: settingsDraft.comfyui,
           workflow: settingsDraft.workflow,
           ocr_model: settingsDraft.ocrModel,
-          vision_model: settingsDraft.visionModel,
         }),
       });
       if (!response.ok) {
@@ -318,12 +311,10 @@ const App = () => {
         comfyui: config.comfyui || '',
         workflow: config.workflow || '',
         ocrModel: config.ocr_model || '',
-        visionModel: config.vision_model || '',
       });
       setSettingsOptions({
         workflows: options.workflows || [],
         ocrModels: options.ocr_models || [],
-        visionModels: options.vision_models || [],
       });
       setShowSettingsModal(false);
     } catch (err) {
@@ -2231,7 +2222,7 @@ const App = () => {
           <div className="confirm-modal" style={{ maxWidth: 560, alignItems: 'stretch' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-text" style={{ textAlign: 'left' }}>
               <h3>Server Settings</h3>
-              <p>Generate workflow, OCR model, vision model, and server URLs.</p>
+              <p>Generate workflow, OCR model, and server URLs.</p>
             </div>
 
             {isSettingsLoading && (
@@ -2290,23 +2281,6 @@ const App = () => {
                     </option>
                   )}
                   {settingsOptions.ocrModels.map((model) => (
-                    <option key={model} value={model}>{model}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="prop-input-group">
-                <label>Vision Model</label>
-                <select
-                  value={settingsDraft.visionModel}
-                  onChange={(e) => setSettingsDraft((prev) => ({ ...prev, visionModel: e.target.value }))}
-                  disabled={isSettingsSaving}
-                >
-                  {settingsOptions.visionModels.length === 0 && (
-                    <option value={settingsDraft.visionModel || ''}>
-                      {isSettingsLoading ? 'Loading vision models...' : 'No vision models available'}
-                    </option>
-                  )}
-                  {settingsOptions.visionModels.map((model) => (
                     <option key={model} value={model}>{model}</option>
                   ))}
                 </select>

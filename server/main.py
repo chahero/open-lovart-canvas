@@ -37,13 +37,13 @@ ASSET_LIBRARY_INDEX_PATH = os.path.join(ASSET_LIBRARY_DIR, "index.json")
 DEFAULT_OLLAMA_URL = os.getenv("OLLAMA_URL", "http://192.168.0.67:11434")
 DEFAULT_COMFYUI_URL = os.getenv("COMFYUI_URL", "http://localhost:8188")
 DEFAULT_WORKFLOW = os.getenv("GENERATE_WORKFLOW", "image_qwen_image_2512_with_2steps_lora.json")
+DEFAULT_VISION_MODEL = os.getenv("VISION_MODEL", "llama3.2-vision")
 
 def parse_model_list(raw: str, fallback: List[str]) -> List[str]:
     parsed = [m.strip() for m in (raw or "").split(",") if m.strip()]
     return parsed or fallback
 
 DEFAULT_OCR_MODELS = parse_model_list(os.getenv("OCR_MODELS", ""), ["deepseek-ocr:3b"])
-DEFAULT_VISION_MODELS = parse_model_list(os.getenv("VISION_MODELS", ""), ["llama3.2-vision"])
 
 def list_available_workflows() -> List[str]:
     if not os.path.isdir(WORKFLOWS_DIR):
@@ -78,7 +78,6 @@ def write_persisted_config():
         "comfyui": COMFYUI_URL,
         "workflow": GENERATE_WORKFLOW,
         "ocr_model": OCR_MODEL,
-        "vision_model": VISION_MODEL,
     }
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -99,9 +98,7 @@ OCR_MODEL = persisted_config.get("ocr_model", DEFAULT_OCR_MODELS[0])
 if OCR_MODEL not in DEFAULT_OCR_MODELS:
     OCR_MODEL = DEFAULT_OCR_MODELS[0]
 
-VISION_MODEL = persisted_config.get("vision_model", DEFAULT_VISION_MODELS[0])
-if VISION_MODEL not in DEFAULT_VISION_MODELS:
-    VISION_MODEL = DEFAULT_VISION_MODELS[0]
+VISION_MODEL = DEFAULT_VISION_MODEL
 
 def build_config_response() -> dict:
     return {
@@ -110,12 +107,10 @@ def build_config_response() -> dict:
             "comfyui": COMFYUI_URL,
             "workflow": GENERATE_WORKFLOW,
             "ocr_model": OCR_MODEL,
-            "vision_model": VISION_MODEL,
         },
         "options": {
             "workflows": list_available_workflows(),
             "ocr_models": DEFAULT_OCR_MODELS,
-            "vision_models": DEFAULT_VISION_MODELS,
         },
     }
 
@@ -232,7 +227,7 @@ async def get_config():
 
 @app.put("/config/update")
 async def update_config(data: dict):
-    global OLLAMA_URL, COMFYUI_URL, GENERATE_WORKFLOW, OCR_MODEL, VISION_MODEL
+    global OLLAMA_URL, COMFYUI_URL, GENERATE_WORKFLOW, OCR_MODEL
 
     workflows = list_available_workflows()
 
@@ -240,20 +235,16 @@ async def update_config(data: dict):
     comfyui = str(data.get("comfyui", COMFYUI_URL)).strip()
     workflow = os.path.basename(str(data.get("workflow", GENERATE_WORKFLOW)).strip())
     ocr_model = str(data.get("ocr_model", data.get("ocrModel", OCR_MODEL))).strip()
-    vision_model = str(data.get("vision_model", data.get("visionModel", VISION_MODEL))).strip()
 
     if workflows and workflow not in workflows:
         raise HTTPException(status_code=400, detail="Invalid workflow selection.")
     if ocr_model not in DEFAULT_OCR_MODELS:
         raise HTTPException(status_code=400, detail="Invalid OCR model selection.")
-    if vision_model not in DEFAULT_VISION_MODELS:
-        raise HTTPException(status_code=400, detail="Invalid vision model selection.")
 
     OLLAMA_URL = ollama or OLLAMA_URL
     COMFYUI_URL = comfyui or COMFYUI_URL
     GENERATE_WORKFLOW = workflow if workflows else ""
     OCR_MODEL = ocr_model
-    VISION_MODEL = vision_model
     write_persisted_config()
 
     return {"status": "success", **build_config_response()}
