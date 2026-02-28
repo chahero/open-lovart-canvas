@@ -183,6 +183,76 @@ const App = () => {
   const eraserCursorRef = useRef(null);
   const maskOverlayRef = useRef(null);
   const imageInputRef = useRef(null);
+  const isFillDraftingRef = useRef(false);
+  const fillDraftRef = useRef(null);
+  const fillPreviewSessionRef = useRef({ active: false, objectId: null, startFill: null });
+  const suspendMaskOverlayUntilRef = useRef(0);
+  const fillPerfStatsRef = useRef({
+    active: false,
+    sessionId: 0,
+    inputCount: 0,
+    uniqueInputCount: 0,
+    lastInputValue: null,
+    applyMsTotal: 0,
+    frameCount: 0,
+    frameMsTotal: 0,
+    overlayCount: 0,
+    overlayMsTotal: 0,
+    pendingRenderAt: 0,
+  });
+
+  const isFillPerfLoggingEnabled = () => {
+    if (typeof window === 'undefined') return false;
+    return window.__FILL_PERF_LOG === true;
+  };
+
+  const resetFillPerfSession = () => {
+    const stats = fillPerfStatsRef.current;
+    stats.active = false;
+    stats.inputCount = 0;
+    stats.uniqueInputCount = 0;
+    stats.lastInputValue = null;
+    stats.applyMsTotal = 0;
+    stats.frameCount = 0;
+    stats.frameMsTotal = 0;
+    stats.overlayCount = 0;
+    stats.overlayMsTotal = 0;
+    stats.pendingRenderAt = 0;
+  };
+
+  const startFillPerfSession = () => {
+    const stats = fillPerfStatsRef.current;
+    stats.active = true;
+    stats.sessionId += 1;
+    stats.inputCount = 0;
+    stats.uniqueInputCount = 0;
+    stats.lastInputValue = null;
+    stats.applyMsTotal = 0;
+    stats.frameCount = 0;
+    stats.frameMsTotal = 0;
+    stats.overlayCount = 0;
+    stats.overlayMsTotal = 0;
+    stats.pendingRenderAt = 0;
+  };
+
+  const logFillPerfSummary = (phase, extra = {}) => {
+    if (!isFillPerfLoggingEnabled()) return;
+    const stats = fillPerfStatsRef.current;
+    const avgApplyMs = stats.uniqueInputCount > 0 ? stats.applyMsTotal / stats.uniqueInputCount : 0;
+    const avgFrameMs = stats.frameCount > 0 ? stats.frameMsTotal / stats.frameCount : 0;
+    const avgOverlayMs = stats.overlayCount > 0 ? stats.overlayMsTotal / stats.overlayCount : 0;
+
+    console.log('[FillPerf]', {
+      phase,
+      sessionId: stats.sessionId,
+      inputCount: stats.inputCount,
+      uniqueInputCount: stats.uniqueInputCount,
+      avgApplyMs: Number(avgApplyMs.toFixed(3)),
+      avgFrameMs: Number(avgFrameMs.toFixed(3)),
+      avgOverlayMs: Number(avgOverlayMs.toFixed(3)),
+      ...extra,
+    });
+  };
 
   // --- Sync Refs ---
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
@@ -190,6 +260,26 @@ const App = () => {
   useEffect(() => { maskTargetIdRef.current = maskTargetId; }, [maskTargetId]);
   useEffect(() => { eraserSizeRef.current = eraserSize; }, [eraserSize]);
   useEffect(() => { maskBrushSizeRef.current = maskBrushSize; }, [maskBrushSize]);
+  useEffect(() => {
+    if (!selectedObject) {
+      isFillDraftingRef.current = false;
+      fillDraftRef.current = null;
+      fillPreviewSessionRef.current = { active: false, objectId: null, startFill: null };
+      resetFillPerfSession();
+      return;
+    }
+    if (isFillDraftingRef.current) return;
+    const fill = selectedObject.fill;
+    fillDraftRef.current = typeof fill === 'string' && fill.startsWith('#') ? fill : '#6366f1';
+    fillPreviewSessionRef.current = { active: false, objectId: selectedObject.id ?? null, startFill: null };
+  }, [selectedObject?.id, selectedObject?.fill]);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.setFillPerfLog = (enabled) => {
+      window.__FILL_PERF_LOG = Boolean(enabled);
+      console.info('[FillPerf] logging', window.__FILL_PERF_LOG ? 'enabled' : 'disabled');
+    };
+  }, []);
   useEffect(() => {
     const canvas = fabricCanvas.current;
     if (!canvas) return;
@@ -288,9 +378,20 @@ const App = () => {
   }, []);
 
   const drawMaskOverlay = useCallback(() => {
+    const startedAt = performance.now();
     const canvas = fabricCanvas.current;
     const overlay = maskOverlayRef.current;
     if (!canvas || !overlay) return;
+    const stats = fillPerfStatsRef.current;
+    if (stats.active && stats.pendingRenderAt > 0) {
+      stats.frameCount += 1;
+      stats.frameMsTotal += (startedAt - stats.pendingRenderAt);
+      stats.pendingRenderAt = 0;
+    }
+    if (performance.now() < suspendMaskOverlayUntilRef.current) {
+      overlay.style.display = 'none';
+      return;
+    }
 
     const width = Math.max(1, Math.round(canvas.getWidth() || 1));
     const height = Math.max(1, Math.round(canvas.getHeight() || 1));
@@ -302,6 +403,7 @@ const App = () => {
     ctx.clearRect(0, 0, width, height);
 
     const strokes = maskStrokesRef.current || [];
+
     if (strokes.length === 0) {
       overlay.style.display = 'none';
       return;
@@ -343,6 +445,10 @@ const App = () => {
         ctx.lineTo(p.x, p.y);
       }
       ctx.stroke();
+    }
+    if (stats.active) {
+      stats.overlayCount += 1;
+      stats.overlayMsTotal += (performance.now() - startedAt);
     }
   }, []);
 
@@ -1560,6 +1666,8 @@ const App = () => {
     const canvas = fabricCanvas.current;
     const active = canvas.getActiveObject();
     if (!active) return;
+    const oldFill = active.fill;
+    if (prop === 'fill' && oldFill === value) return;
 
     if (prop === 'fontSize') {
       active.set({ fontSize: value, scaleX: 1, scaleY: 1 });
@@ -1567,8 +1675,19 @@ const App = () => {
       active.set(prop, value);
     }
 
-    if (active.setCoords) active.setCoords();
-    canvas.renderAll();
+    if (active.setCoords && prop !== 'fill') active.setCoords();
+    canvas.requestRenderAll();
+
+    if (prop === 'fill') {
+      const nextFill = active.fill;
+      if (nextFill !== oldFill) {
+        setSelectedObject((prev) => (prev ? { ...prev, fill: nextFill } : prev));
+      }
+      syncUI();
+      saveHistory();
+      return;
+    }
+
     syncUI();
     saveHistory();
   };
@@ -1576,6 +1695,82 @@ const App = () => {
   const ensureHex = (color) => {
     if (!color || typeof color !== 'string' || !color.startsWith('#')) return '#6366f1';
     return color;
+  };
+
+  const handleFillDraftInput = (value) => {
+    const inputStartedAt = performance.now();
+    const canvas = fabricCanvas.current;
+    const active = canvas?.getActiveObject();
+    if (!active) return;
+
+    const objectId = active.id ?? null;
+    const session = fillPreviewSessionRef.current;
+    if (!session.active || session.objectId !== objectId) {
+      session.active = true;
+      session.objectId = objectId;
+      session.startFill = active.fill;
+      if (isFillPerfLoggingEnabled()) startFillPerfSession();
+      else resetFillPerfSession();
+    }
+
+    isFillDraftingRef.current = true;
+    fillDraftRef.current = value;
+    suspendMaskOverlayUntilRef.current = performance.now() + 120;
+    const stats = fillPerfStatsRef.current;
+    if (stats.active) {
+      stats.inputCount += 1;
+      if (stats.lastInputValue !== value) {
+        stats.uniqueInputCount += 1;
+        stats.lastInputValue = value;
+      }
+    }
+    if (active.fill === value) return;
+    active.set('fill', value);
+    const beforeRenderRequest = performance.now();
+    if (stats.active) {
+      stats.applyMsTotal += (beforeRenderRequest - inputStartedAt);
+      stats.pendingRenderAt = beforeRenderRequest;
+    }
+    canvas.requestRenderAll();
+  };
+
+  const commitFillDraft = (explicitValue = null) => {
+    const commitStartedAt = performance.now();
+    const canvas = fabricCanvas.current;
+    const active = canvas?.getActiveObject();
+    const value = explicitValue || fillDraftRef.current;
+    if (!value || !active) {
+      isFillDraftingRef.current = false;
+      fillPreviewSessionRef.current = { active: false, objectId: null, startFill: null };
+      suspendMaskOverlayUntilRef.current = 0;
+      return;
+    }
+
+    const session = fillPreviewSessionRef.current;
+    const beforeFill = active.fill;
+    const changedFromSession = session.active && session.startFill !== value;
+    if (beforeFill !== value) {
+      active.set('fill', value);
+    }
+    const stats = fillPerfStatsRef.current;
+    if (stats.active) stats.pendingRenderAt = performance.now();
+    canvas.requestRenderAll();
+
+    isFillDraftingRef.current = false;
+    fillDraftRef.current = value;
+    fillPreviewSessionRef.current = { active: false, objectId: session.objectId, startFill: null };
+    suspendMaskOverlayUntilRef.current = 0;
+
+    if (beforeFill !== value || changedFromSession) {
+      setSelectedObject((prev) => (prev ? { ...prev, fill: value } : prev));
+      syncUI();
+      saveHistory();
+    }
+    logFillPerfSummary('commit', {
+      changed: beforeFill !== value || changedFromSession,
+      commitMs: Number((performance.now() - commitStartedAt).toFixed(3)),
+    });
+    resetFillPerfSession();
   };
 
   const removeBackground = async () => {
@@ -2271,10 +2466,22 @@ const App = () => {
                             </button>
                           </div>
                         </div>
-                      <div className="prop-input-group">
+                        <div className="prop-input-group">
                         <label>Text Color</label>
-                        <input type="color" value={ensureHex(selectedObject.fill)} onChange={(e) => setProperty('fill', e.target.value)} />
-                      </div>
+                        <input
+                          key={`text-fill-${selectedObject.id || 'none'}`}
+                          type="color"
+                          defaultValue={ensureHex(selectedObject.fill)}
+                          onInput={(e) => handleFillDraftInput(e.target.value)}
+                          onChange={() => {}}
+                          onBlur={(e) => commitFillDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === 'Escape') {
+                              commitFillDraft(e.target.value);
+                            }
+                          }}
+                        />
+                        </div>
                       <div className="flex-row">
                         <button className={`toggle-btn ${selectedObject.fontWeight === 'bold' ? 'active' : ''}`} onClick={() => setProperty('fontWeight', selectedObject.fontWeight === 'bold' ? 'normal' : 'bold')}><Bold size={16} /></button>
                         <button className={`toggle-btn ${selectedObject.fontStyle === 'italic' ? 'active' : ''}`} onClick={() => setProperty('fontStyle', selectedObject.fontStyle === 'italic' ? 'normal' : 'italic')}><Italic size={16} /></button>
@@ -2287,10 +2494,22 @@ const App = () => {
 
                   {activePropsTab === 'shape' && selectedIsShape && (
                     <div className="shape-tools">
-                      <div className="prop-input-group">
-                        <label>Fill Color</label>
-                        <input type="color" value={ensureHex(selectedObject.fill)} onChange={(e) => setProperty('fill', e.target.value)} />
-                      </div>
+                        <div className="prop-input-group">
+                          <label>Fill Color</label>
+                          <input
+                            key={`shape-fill-${selectedObject.id || 'none'}`}
+                            type="color"
+                            defaultValue={ensureHex(selectedObject.fill)}
+                            onInput={(e) => handleFillDraftInput(e.target.value)}
+                            onChange={() => {}}
+                            onBlur={(e) => commitFillDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === 'Escape') {
+                                commitFillDraft(e.target.value);
+                              }
+                            }}
+                          />
+                        </div>
                     </div>
                   )}
                   {activePropsTab === 'shape' && !selectedIsShape && (
