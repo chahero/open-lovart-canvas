@@ -231,7 +231,7 @@ const App = () => {
       setActivePropsTab('text');
       return;
     }
-    if (selectedObject.type === 'rect') {
+    if (selectedObject.type === 'rect' || selectedObject.type === 'circle' || selectedObject.type === 'ellipse') {
       setActivePropsTab('shape');
       return;
     }
@@ -261,9 +261,11 @@ const App = () => {
     const activeObjects = canvas.getActiveObjects();
 
     if (activeObj) {
-      setSelectedObject({
+        setSelectedObject({
         type: activeObj.type,
         fill: activeObj.fill,
+        stroke: activeObj.stroke,
+        strokeWidth: activeObj.strokeWidth,
         opacity: activeObj.opacity,
         left: Math.round(activeObj.left),
         top: Math.round(activeObj.top),
@@ -2387,8 +2389,8 @@ const App = () => {
                     <div className="no-selection-msg">Select a text layer for Text controls</div>
                   )}
 
-                  {activePropsTab === 'shape' && selectedIsShape && (
-                    <div className="shape-tools">
+                    {activePropsTab === 'shape' && selectedIsShape && (
+                      <div className="shape-tools">
                         <div className="prop-input-group">
                           <label>Fill Color</label>
                           <input
@@ -2397,16 +2399,62 @@ const App = () => {
                             defaultValue={ensureHex(selectedObject.fill)}
                             onInput={(e) => handleFillDraftInput(e.target.value)}
                             onChange={() => {}}
-                            onBlur={(e) => commitFillDraft(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === 'Escape') {
-                                commitFillDraft(e.target.value);
-                              }
-                            }}
-                          />
+                              onBlur={(e) => commitFillDraft(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === 'Escape') {
+                                  commitFillDraft(e.target.value);
+                                }
+                              }}
+                            />
                         </div>
-                    </div>
-                  )}
+                        <div className="prop-input-group">
+                          <label>Stroke Color</label>
+                          <input
+                            key={`shape-stroke-${selectedObject.id || 'none'}`}
+                            type="color"
+                            defaultValue={selectedObject.stroke && typeof selectedObject.stroke === 'string' && selectedObject.stroke.startsWith('#')
+                              ? selectedObject.stroke
+                              : '#18181b'}
+                            onChange={(e) => setProperty('stroke', e.target.value)}
+                          />
+                          <button
+                            className="action-tag"
+                            onClick={() => {
+                              setProperty('stroke', 'transparent');
+                              setProperty('strokeWidth', 0);
+                            }}
+                          >
+                            No Stroke
+                          </button>
+                        </div>
+                        <div className="prop-input-group">
+                          <label>Stroke Width</label>
+                          <div className="modern-input-group font-size-control">
+                            <button
+                              className="input-step-btn font-size-step-btn"
+                              onClick={() => setProperty('strokeWidth', Math.max(0, (selectedObject.strokeWidth || 0) - 1))}
+                            >
+                              -
+                            </button>
+                            <input
+                              type="number"
+                              className="font-size-input"
+                              min="0"
+                              max="50"
+                              value={selectedObject.strokeWidth || 0}
+                              onChange={(e) => setProperty('strokeWidth', Math.max(0, parseInt(e.target.value) || 0))}
+                            />
+                            <span className="font-size-unit">px</span>
+                            <button
+                              className="input-step-btn font-size-step-btn"
+                              onClick={() => setProperty('strokeWidth', (selectedObject.strokeWidth || 0) + 1)}
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   {activePropsTab === 'shape' && !selectedIsShape && (
                     <div className="no-selection-msg">Select a shape layer for Shape controls</div>
                   )}
