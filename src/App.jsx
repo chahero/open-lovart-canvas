@@ -187,72 +187,6 @@ const App = () => {
   const fillDraftRef = useRef(null);
   const fillPreviewSessionRef = useRef({ active: false, objectId: null, startFill: null });
   const suspendMaskOverlayUntilRef = useRef(0);
-  const fillPerfStatsRef = useRef({
-    active: false,
-    sessionId: 0,
-    inputCount: 0,
-    uniqueInputCount: 0,
-    lastInputValue: null,
-    applyMsTotal: 0,
-    frameCount: 0,
-    frameMsTotal: 0,
-    overlayCount: 0,
-    overlayMsTotal: 0,
-    pendingRenderAt: 0,
-  });
-
-  const isFillPerfLoggingEnabled = () => {
-    if (typeof window === 'undefined') return false;
-    return window.__FILL_PERF_LOG === true;
-  };
-
-  const resetFillPerfSession = () => {
-    const stats = fillPerfStatsRef.current;
-    stats.active = false;
-    stats.inputCount = 0;
-    stats.uniqueInputCount = 0;
-    stats.lastInputValue = null;
-    stats.applyMsTotal = 0;
-    stats.frameCount = 0;
-    stats.frameMsTotal = 0;
-    stats.overlayCount = 0;
-    stats.overlayMsTotal = 0;
-    stats.pendingRenderAt = 0;
-  };
-
-  const startFillPerfSession = () => {
-    const stats = fillPerfStatsRef.current;
-    stats.active = true;
-    stats.sessionId += 1;
-    stats.inputCount = 0;
-    stats.uniqueInputCount = 0;
-    stats.lastInputValue = null;
-    stats.applyMsTotal = 0;
-    stats.frameCount = 0;
-    stats.frameMsTotal = 0;
-    stats.overlayCount = 0;
-    stats.overlayMsTotal = 0;
-    stats.pendingRenderAt = 0;
-  };
-
-  const logFillPerfSummary = (phase, extra = {}) => {
-    if (!isFillPerfLoggingEnabled()) return;
-    const stats = fillPerfStatsRef.current;
-    const avgApplyMs = stats.uniqueInputCount > 0 ? stats.applyMsTotal / stats.uniqueInputCount : 0;
-    const avgFrameMs = stats.frameCount > 0 ? stats.frameMsTotal / stats.frameCount : 0;
-    const avgOverlayMs = stats.overlayCount > 0 ? stats.overlayMsTotal / stats.overlayCount : 0;
-
-    console.log('[FillPerf]', {
-      phase,
-      sessionId: stats.sessionId,
-      inputCount: stats.inputCount,
-      uniqueInputCount: stats.uniqueInputCount,
-      avgApplyMs: Number(avgApplyMs.toFixed(3)),
-      avgFrameMs: Number(avgFrameMs.toFixed(3)),
-      avgOverlayMs: Number(avgOverlayMs.toFixed(3)),
-      ...extra,
-    });
-  };
 
   // --- Sync Refs ---
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
@@ -265,7 +199,6 @@ const App = () => {
       isFillDraftingRef.current = false;
       fillDraftRef.current = null;
       fillPreviewSessionRef.current = { active: false, objectId: null, startFill: null };
-      resetFillPerfSession();
       return;
     }
     if (isFillDraftingRef.current) return;
@@ -273,13 +206,6 @@ const App = () => {
     fillDraftRef.current = typeof fill === 'string' && fill.startsWith('#') ? fill : '#6366f1';
     fillPreviewSessionRef.current = { active: false, objectId: selectedObject.id ?? null, startFill: null };
   }, [selectedObject?.id, selectedObject?.fill]);
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    window.setFillPerfLog = (enabled) => {
-      window.__FILL_PERF_LOG = Boolean(enabled);
-      console.info('[FillPerf] logging', window.__FILL_PERF_LOG ? 'enabled' : 'disabled');
-    };
-  }, []);
   useEffect(() => {
     const canvas = fabricCanvas.current;
     if (!canvas) return;
@@ -378,16 +304,9 @@ const App = () => {
   }, []);
 
   const drawMaskOverlay = useCallback(() => {
-    const startedAt = performance.now();
     const canvas = fabricCanvas.current;
     const overlay = maskOverlayRef.current;
     if (!canvas || !overlay) return;
-    const stats = fillPerfStatsRef.current;
-    if (stats.active && stats.pendingRenderAt > 0) {
-      stats.frameCount += 1;
-      stats.frameMsTotal += (startedAt - stats.pendingRenderAt);
-      stats.pendingRenderAt = 0;
-    }
     if (performance.now() < suspendMaskOverlayUntilRef.current) {
       overlay.style.display = 'none';
       return;
@@ -1698,7 +1617,6 @@ const App = () => {
   };
 
   const handleFillDraftInput = (value) => {
-    const inputStartedAt = performance.now();
     const canvas = fabricCanvas.current;
     const active = canvas?.getActiveObject();
     if (!active) return;
@@ -1709,33 +1627,17 @@ const App = () => {
       session.active = true;
       session.objectId = objectId;
       session.startFill = active.fill;
-      if (isFillPerfLoggingEnabled()) startFillPerfSession();
-      else resetFillPerfSession();
     }
 
     isFillDraftingRef.current = true;
     fillDraftRef.current = value;
     suspendMaskOverlayUntilRef.current = performance.now() + 120;
-    const stats = fillPerfStatsRef.current;
-    if (stats.active) {
-      stats.inputCount += 1;
-      if (stats.lastInputValue !== value) {
-        stats.uniqueInputCount += 1;
-        stats.lastInputValue = value;
-      }
-    }
     if (active.fill === value) return;
     active.set('fill', value);
-    const beforeRenderRequest = performance.now();
-    if (stats.active) {
-      stats.applyMsTotal += (beforeRenderRequest - inputStartedAt);
-      stats.pendingRenderAt = beforeRenderRequest;
-    }
     canvas.requestRenderAll();
   };
 
   const commitFillDraft = (explicitValue = null) => {
-    const commitStartedAt = performance.now();
     const canvas = fabricCanvas.current;
     const active = canvas?.getActiveObject();
     const value = explicitValue || fillDraftRef.current;
@@ -1752,8 +1654,6 @@ const App = () => {
     if (beforeFill !== value) {
       active.set('fill', value);
     }
-    const stats = fillPerfStatsRef.current;
-    if (stats.active) stats.pendingRenderAt = performance.now();
     canvas.requestRenderAll();
 
     isFillDraftingRef.current = false;
@@ -1766,11 +1666,6 @@ const App = () => {
       syncUI();
       saveHistory();
     }
-    logFillPerfSummary('commit', {
-      changed: beforeFill !== value || changedFromSession,
-      commitMs: Number((performance.now() - commitStartedAt).toFixed(3)),
-    });
-    resetFillPerfSession();
   };
 
   const removeBackground = async () => {
