@@ -90,6 +90,7 @@ const buildRoundControl = () => {
 const ensureRectRoundControls = (obj) => {
   if (!obj) return;
   if (obj.type !== 'rect' && obj.type !== 'Rect') return;
+  obj.strokeUniform = true;
   const controls = obj.controls;
   if (!controls) return;
 
@@ -105,6 +106,9 @@ const configureRectRoundControls = () => {
   const baseControls = fabric.Rect.prototype.controls;
   if (!baseControls) return;
   if (!fabric.controlsUtils.renderCircleControl || !fabric.controlsUtils.wrapWithFixedAnchor) return;
+  if (fabric.Rect.prototype) {
+    fabric.Rect.prototype.strokeUniform = true;
+  }
   if (!baseControls.roundness) baseControls.roundness = buildRoundControl();
   if (baseControls.rxRound) delete baseControls.rxRound;
   if (baseControls.ryRound) delete baseControls.ryRound;
@@ -1467,7 +1471,8 @@ const App = () => {
     if (!canvas) return;
     const rect = new fabric.Rect({
       width: 150, height: 150, rx: 12, ry: 12,
-      fill: 'rgba(59, 130, 246, 0.5)', stroke: '#3b82f6', strokeWidth: 2
+      fill: 'rgba(59, 130, 246, 0.5)', stroke: '#3b82f6', strokeWidth: 2,
+      strokeUniform: true,
     });
     canvas.add(rect);
     const sceneCenter = getCreationCenterInScene();
