@@ -28,6 +28,7 @@ const SHORTCUT_DEFINITIONS = [
   { id: 'redo', label: 'Redo', key: 'y', keyLabel: 'Ctrl + Y', ctrl: true },
   { id: 'toggleShortcuts', label: 'Toggle This Help', key: '?', keyLabel: '?' },
 ];
+const ROUNDNESS_DRAG_SENSITIVITY = 0.7;
 
 let hasConfiguredRectRoundControls = false;
 const buildRoundControl = () => {
@@ -64,7 +65,7 @@ const buildRoundControl = () => {
       const maxRadius = Math.max(0, Math.min(scaledWidth, scaledHeight) / 2);
       const deltaX = local.x - state.uniformRadius.startX;
       const deltaY = local.y - state.uniformRadius.startY;
-      const delta = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY;
+      const delta = (Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY) * ROUNDNESS_DRAG_SENSITIVITY;
       const nextValue = state.uniformRadius.startValue + delta;
       const clamped = Math.max(0, Math.min(maxRadius, nextValue));
 
