@@ -691,6 +691,8 @@ const App = () => {
       stopContextMenu: true,
       skipOffscreen: false,
     });
+    canvas.uniformScaling = false;
+    canvas.uniScaleKey = 'shiftKey';
 
     fabricCanvas.current = canvas;
     canvas.setViewportTransform([
