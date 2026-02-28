@@ -29,6 +29,88 @@ const SHORTCUT_DEFINITIONS = [
   { id: 'toggleShortcuts', label: 'Toggle This Help', key: '?', keyLabel: '?' },
 ];
 
+let hasConfiguredRectRoundControls = false;
+const buildRoundControl = () => {
+  if (!fabric.Control || !fabric.controlsUtils) return null;
+
+  return new fabric.Control({
+    x: 0.5,
+    y: -0.5,
+    offsetX: 26,
+    offsetY: -26,
+    sizeX: 12,
+    sizeY: 12,
+    cornerStyle: 'circle',
+    render: fabric.controlsUtils.renderCircleControl,
+    cursorStyle: 'nwse-resize',
+    actionHandler: fabric.controlsUtils.wrapWithFixedAnchor((eventData, transform, x, y) => {
+      const target = transform?.target;
+      if (!target || (target.type !== 'rect' && target.type !== 'Rect')) return false;
+
+      const inv = fabric.util.invertTransform(target.calcTransformMatrix());
+      const local = fabric.util.transformPoint(new fabric.Point(x, y), inv);
+      const state = (transform.__roundnessDragState ||= {});
+      if (!state.uniformRadius) {
+        const start = (Number(target.rx || 0) + Number(target.ry || 0)) / 2;
+        state.uniformRadius = {
+          startValue: start,
+          startX: local.x,
+          startY: local.y,
+        };
+      }
+
+      const scaledWidth = Math.abs(target.getScaledWidth ? target.getScaledWidth() : ((target.width || 0) * (target.scaleX || 1)));
+      const scaledHeight = Math.abs(target.getScaledHeight ? target.getScaledHeight() : ((target.height || 0) * (target.scaleY || 1)));
+      const maxRadius = Math.max(0, Math.min(scaledWidth, scaledHeight) / 2);
+      const deltaX = local.x - state.uniformRadius.startX;
+      const deltaY = local.y - state.uniformRadius.startY;
+      const delta = Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY;
+      const nextValue = state.uniformRadius.startValue + delta;
+      const clamped = Math.max(0, Math.min(maxRadius, nextValue));
+
+      target.set({
+        rx: clamped,
+        ry: clamped,
+      });
+
+      target.setCoords();
+      if (target.canvas) target.canvas.requestRenderAll();
+      return true;
+    }),
+    mouseUpHandler: (eventData, transform) => {
+      if (!transform || !transform.__roundnessDragState) return false;
+      transform.__roundnessDragState = null;
+      return false;
+    },
+    actionName: 'roundness',
+  });
+};
+
+const ensureRectRoundControls = (obj) => {
+  if (!obj) return;
+  if (obj.type !== 'rect' && obj.type !== 'Rect') return;
+  const controls = obj.controls;
+  if (!controls) return;
+
+  if (controls.rxRound) delete controls.rxRound;
+  if (controls.ryRound) delete controls.ryRound;
+  if (!controls.roundness) controls.roundness = buildRoundControl();
+};
+
+const configureRectRoundControls = () => {
+  if (hasConfiguredRectRoundControls) return;
+  if (!fabric.Rect || !fabric.Control || !fabric.controlsUtils) return;
+
+  const baseControls = fabric.Rect.prototype.controls;
+  if (!baseControls) return;
+  if (!fabric.controlsUtils.renderCircleControl || !fabric.controlsUtils.wrapWithFixedAnchor) return;
+  if (!baseControls.roundness) baseControls.roundness = buildRoundControl();
+  if (baseControls.rxRound) delete baseControls.rxRound;
+  if (baseControls.ryRound) delete baseControls.ryRound;
+
+  hasConfiguredRectRoundControls = true;
+};
+
 const App = () => {
   // --- States ---
   const [activeTool, setActiveTool] = useState('select');
@@ -517,12 +599,19 @@ const App = () => {
     setHistoryStep(newHistory.length - 1);
   }, [history, historyStep]);
 
+  const hydrateRoundControlsForRects = () => {
+    const canvas = fabricCanvas.current;
+    if (!canvas) return;
+    canvas.getObjects().forEach((obj) => ensureRectRoundControls(obj));
+  };
+
   const undo = () => {
     if (historyStep <= 0) return;
     isSavingHistory.current = true;
     const prevStep = historyStep - 1;
     const state = JSON.parse(history[prevStep]);
     fabricCanvas.current.loadFromJSON(state).then(() => {
+      hydrateRoundControlsForRects();
       fabricCanvas.current.renderAll();
       setHistoryStep(prevStep);
       isSavingHistory.current = false;
@@ -535,6 +624,7 @@ const App = () => {
     const nextStep = historyStep + 1;
     const state = JSON.parse(history[nextStep]);
     fabricCanvas.current.loadFromJSON(state).then(() => {
+      hydrateRoundControlsForRects();
       fabricCanvas.current.renderAll();
       setHistoryStep(nextStep);
       isSavingHistory.current = false;
@@ -559,6 +649,7 @@ const App = () => {
       fabric.FabricObject.prototype.borderScaleFactor = 2;
       fabric.FabricObject.prototype.padding = 4;
     }
+    configureRectRoundControls();
 
     const canvas = new fabric.Canvas(canvasRef.current, {
       backgroundColor: 'transparent',
@@ -631,6 +722,7 @@ const App = () => {
     });
 
     canvas.on('object:added', (evt) => {
+      ensureRectRoundControls(evt?.target);
       stabilizeRasterObject(evt?.target);
       if (!isSavingHistory.current) saveHistory();
       syncUI();
@@ -638,8 +730,16 @@ const App = () => {
     canvas.on('object:removed', () => { if (!isSavingHistory.current) saveHistory(); syncUI(); });
     canvas.on('object:modified', () => { if (!isSavingHistory.current) saveHistory(); syncUI(); });
     canvas.on('object:scaling', syncUI);
-    canvas.on('selection:created', syncUI);
-    canvas.on('selection:updated', syncUI);
+    canvas.on('selection:created', () => {
+      const targets = canvas.getActiveObjects?.() || [];
+      targets.forEach((obj) => ensureRectRoundControls(obj));
+      syncUI();
+    });
+    canvas.on('selection:updated', () => {
+      const targets = canvas.getActiveObjects?.() || [];
+      targets.forEach((obj) => ensureRectRoundControls(obj));
+      syncUI();
+    });
     canvas.on('selection:cleared', syncUI);
     canvas.on('after:render', drawMaskOverlay);
 
