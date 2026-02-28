@@ -2234,66 +2234,83 @@ const App = () => {
               <p>Generate workflow, OCR model, vision model, and server URLs.</p>
             </div>
 
-            {isSettingsLoading ? (
-              <div className="no-selection-msg">Loading settings...</div>
-            ) : (
-              <div className="props-body">
-                <div className="prop-input-group">
-                  <label>ComfyUI URL</label>
-                  <input
-                    type="text"
-                    value={settingsDraft.comfyui}
-                    onChange={(e) => setSettingsDraft((prev) => ({ ...prev, comfyui: e.target.value }))}
-                    disabled={isSettingsSaving}
-                  />
-                </div>
-                <div className="prop-input-group">
-                  <label>Ollama URL</label>
-                  <input
-                    type="text"
-                    value={settingsDraft.ollama}
-                    onChange={(e) => setSettingsDraft((prev) => ({ ...prev, ollama: e.target.value }))}
-                    disabled={isSettingsSaving}
-                  />
-                </div>
-                <div className="prop-input-group">
-                  <label>Generate Workflow</label>
-                  <select
-                    value={settingsDraft.workflow}
-                    onChange={(e) => setSettingsDraft((prev) => ({ ...prev, workflow: e.target.value }))}
-                    disabled={isSettingsSaving}
-                  >
-                    {settingsOptions.workflows.map((wf) => (
-                      <option key={wf} value={wf}>{wf}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="prop-input-group">
-                  <label>OCR Model</label>
-                  <select
-                    value={settingsDraft.ocrModel}
-                    onChange={(e) => setSettingsDraft((prev) => ({ ...prev, ocrModel: e.target.value }))}
-                    disabled={isSettingsSaving}
-                  >
-                    {settingsOptions.ocrModels.map((model) => (
-                      <option key={model} value={model}>{model}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="prop-input-group">
-                  <label>Vision Model</label>
-                  <select
-                    value={settingsDraft.visionModel}
-                    onChange={(e) => setSettingsDraft((prev) => ({ ...prev, visionModel: e.target.value }))}
-                    disabled={isSettingsSaving}
-                  >
-                    {settingsOptions.visionModels.map((model) => (
-                      <option key={model} value={model}>{model}</option>
-                    ))}
-                  </select>
-                </div>
+            {isSettingsLoading && (
+              <div className="no-selection-msg" style={{ marginBottom: 8, padding: '8px 0', fontSize: 12 }}>
+                Loading latest settings...
               </div>
             )}
+
+            <div className="props-body">
+              <div className="prop-input-group">
+                <label>ComfyUI URL</label>
+                <input
+                  type="text"
+                  value={settingsDraft.comfyui}
+                  onChange={(e) => setSettingsDraft((prev) => ({ ...prev, comfyui: e.target.value }))}
+                  disabled={isSettingsSaving}
+                />
+              </div>
+              <div className="prop-input-group">
+                <label>Ollama URL</label>
+                <input
+                  type="text"
+                  value={settingsDraft.ollama}
+                  onChange={(e) => setSettingsDraft((prev) => ({ ...prev, ollama: e.target.value }))}
+                  disabled={isSettingsSaving}
+                />
+              </div>
+              <div className="prop-input-group">
+                <label>Generate Workflow</label>
+                <select
+                  value={settingsDraft.workflow}
+                  onChange={(e) => setSettingsDraft((prev) => ({ ...prev, workflow: e.target.value }))}
+                  disabled={isSettingsSaving}
+                >
+                  {settingsOptions.workflows.length === 0 && (
+                    <option value={settingsDraft.workflow || ''}>
+                      {isSettingsLoading ? 'Loading workflows...' : 'No workflows available'}
+                    </option>
+                  )}
+                  {settingsOptions.workflows.map((wf) => (
+                    <option key={wf} value={wf}>{wf}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="prop-input-group">
+                <label>OCR Model</label>
+                <select
+                  value={settingsDraft.ocrModel}
+                  onChange={(e) => setSettingsDraft((prev) => ({ ...prev, ocrModel: e.target.value }))}
+                  disabled={isSettingsSaving}
+                >
+                  {settingsOptions.ocrModels.length === 0 && (
+                    <option value={settingsDraft.ocrModel || ''}>
+                      {isSettingsLoading ? 'Loading OCR models...' : 'No OCR models available'}
+                    </option>
+                  )}
+                  {settingsOptions.ocrModels.map((model) => (
+                    <option key={model} value={model}>{model}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="prop-input-group">
+                <label>Vision Model</label>
+                <select
+                  value={settingsDraft.visionModel}
+                  onChange={(e) => setSettingsDraft((prev) => ({ ...prev, visionModel: e.target.value }))}
+                  disabled={isSettingsSaving}
+                >
+                  {settingsOptions.visionModels.length === 0 && (
+                    <option value={settingsDraft.visionModel || ''}>
+                      {isSettingsLoading ? 'Loading vision models...' : 'No vision models available'}
+                    </option>
+                  )}
+                  {settingsOptions.visionModels.map((model) => (
+                    <option key={model} value={model}>{model}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
 
             <div className="modal-actions">
               <button
