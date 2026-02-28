@@ -2219,13 +2219,25 @@ const App = () => {
                   </div>
                   <div className="prop-input-group">
                     <label>Opacity</label>
-                    <input type="range" min="0" max="1" step="0.01" value={selectedObject.opacity} onChange={(e) => setProperty('opacity', parseFloat(e.target.value))} />
+                    <div className="modern-input-group slider-control">
+                      <input
+                        type="range"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        value={selectedObject.opacity}
+                        onChange={(e) => setProperty('opacity', parseFloat(e.target.value))}
+                      />
+                      <span className="range-value-pill">
+                        {Math.round((selectedObject.opacity || 0) * 100)}%
+                      </span>
+                    </div>
                   </div>
 
-                  {activePropsTab === 'text' && selectedIsText && (
-                    <div className="text-tools">
-                      <div className="prop-input-group">
-                        <label>Font</label>
+                    {activePropsTab === 'text' && selectedIsText && (
+                      <div className="text-tools">
+                        <div className="prop-input-group">
+                          <label>Font</label>
                         <select value={selectedObject.fontFamily} onChange={(e) => setProperty('fontFamily', e.target.value)}>
                           <option value="Inter">Inter (Sans)</option>
                           <option value="Roboto">Roboto</option>
@@ -2235,14 +2247,30 @@ const App = () => {
                           <option value="Courier New">Monospace</option>
                         </select>
                       </div>
-                      <div className="prop-input-group">
-                        <label>Font Size</label>
-                        <div className="modern-input-group">
-                          <button className="input-step-btn" onClick={() => setProperty('fontSize', Math.max(1, selectedObject.fontSize - 1))}>-</button>
-                          <input type="number" value={Math.round(selectedObject.fontSize)} onChange={(e) => setProperty('fontSize', parseInt(e.target.value) || 1)} />
-                          <button className="input-step-btn" onClick={() => setProperty('fontSize', selectedObject.fontSize + 1)}>+</button>
+                        <div className="prop-input-group">
+                          <label>Font Size</label>
+                          <div className="modern-input-group font-size-control">
+                            <button
+                              className="input-step-btn font-size-step-btn"
+                              onClick={() => setProperty('fontSize', Math.max(1, selectedObject.fontSize - 1))}
+                            >
+                              -
+                            </button>
+                            <input
+                              type="number"
+                              className="font-size-input"
+                              value={Math.round(selectedObject.fontSize)}
+                              onChange={(e) => setProperty('fontSize', parseInt(e.target.value) || 1)}
+                            />
+                            <span className="font-size-unit">px</span>
+                            <button
+                              className="input-step-btn font-size-step-btn"
+                              onClick={() => setProperty('fontSize', selectedObject.fontSize + 1)}
+                            >
+                              +
+                            </button>
+                          </div>
                         </div>
-                      </div>
                       <div className="prop-input-group">
                         <label>Text Color</label>
                         <input type="color" value={ensureHex(selectedObject.fill)} onChange={(e) => setProperty('fill', e.target.value)} />
@@ -2298,33 +2326,51 @@ const App = () => {
                       </div>
                       {activeTool === 'eraser' && (
                         <div className="prop-input-group">
-                          <label>Eraser Size ({eraserSize}px)</label>
-                          <input
-                            type="range"
-                            min="6"
-                            max="140"
-                            step="1"
-                            value={eraserSize}
-                            onChange={(e) => setEraserSize(parseInt(e.target.value, 10) || 28)}
-                          />
+                           <label>Eraser Size</label>
+                          <div className="modern-input-group slider-control">
+                            <input
+                              type="range"
+                              min="6"
+                              max="140"
+                              step="1"
+                              value={eraserSize}
+                              onChange={(e) => setEraserSize(parseInt(e.target.value, 10) || 28)}
+                            />
+                            <span className="range-value-pill">{eraserSize}px</span>
+                          </div>
                         </div>
                       )}
                       {activeTool === 'mark' && (
                         <div className="prop-input-group">
-                          <label>Mask Brush Size ({maskBrushSize}px)</label>
-                          <input
-                            type="range"
-                            min="6"
-                            max="180"
-                            step="1"
-                            value={maskBrushSize}
-                            onChange={(e) => setMaskBrushSize(parseInt(e.target.value, 10) || 36)}
-                          />
+                           <label>Mask Brush Size</label>
+                          <div className="modern-input-group slider-control">
+                            <input
+                              type="range"
+                              min="6"
+                              max="180"
+                              step="1"
+                              value={maskBrushSize}
+                              onChange={(e) => setMaskBrushSize(parseInt(e.target.value, 10) || 36)}
+                            />
+                            <span className="range-value-pill">{maskBrushSize}px</span>
+                          </div>
                         </div>
                       )}
                       <div className="prop-input-group">
                         <label>Brightness</label>
-                        <input type="range" min="-1" max="1" step="0.1" value={selectedObject.brightness} onChange={(e) => applyImageFilter('brightness', parseFloat(e.target.value))} />
+                        <div className="modern-input-group slider-control">
+                          <input
+                            type="range"
+                            min="-1"
+                            max="1"
+                            step="0.1"
+                            value={selectedObject.brightness}
+                            onChange={(e) => applyImageFilter('brightness', parseFloat(e.target.value))}
+                          />
+                          <span className="range-value-pill">
+                            {(selectedObject.brightness || 0).toFixed(2)}
+                          </span>
+                        </div>
                       </div>
                       <div className="check-row">
                         <input type="checkbox" checked={selectedObject.grayscale} onChange={(e) => applyImageFilter('grayscale', e.target.checked)} />
