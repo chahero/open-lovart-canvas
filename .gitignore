@@ -49,6 +49,12 @@ server/.env
 # Runtime asset library (server-managed)
 server/assets/library/files/
 server/assets/library/index.json
+server/assets/fonts/files/
+server/assets/fonts/index.json
+public/fonts/*.woff
+public/fonts/*.woff2
+public/fonts/*.ttf
+public/fonts/*.otf
 
 # Editor directories and files
 .vscode/*
