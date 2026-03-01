@@ -123,6 +123,7 @@ const App = () => {
   const [maskStrokes, setMaskStrokes] = useState([]);
   const [maskTargetId, setMaskTargetId] = useState(null);
   const [showAiInput, setShowAiInput] = useState(false);
+  const [activeAiMode, setActiveAiMode] = useState('t2i');
   const [isDragging, setIsDragging] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
   const [snapEnabled, setSnapEnabled] = useState(true);
@@ -167,8 +168,27 @@ const App = () => {
     ollama: '',
     comfyui: '',
     workflow: '',
+    workflowMap: {
+      t2i: '',
+      i2i: '',
+      upscale: '',
+    },
     ocrModel: '',
   });
+
+  const aiModeConfig = [
+    { key: 't2i', label: 'T2I Generate' },
+    { key: 'i2i', label: 'I2I Generate' },
+  ];
+
+  const normalizeWorkflowMapFromConfig = (config = {}) => {
+    const rawMap = config.workflow_map;
+    return {
+      t2i: String(rawMap?.t2i || config.workflow || '').trim(),
+      i2i: String(rawMap?.i2i || '').trim(),
+      upscale: String(rawMap?.upscale || '').trim(),
+    };
+  };
 
   // --- Refs ---
   const canvasRef = useRef(null);
@@ -448,10 +468,12 @@ const App = () => {
 
       const config = data.config || {};
       const options = data.options || {};
+      const workflowMap = normalizeWorkflowMapFromConfig(config);
       setSettingsDraft({
         ollama: config.ollama || '',
         comfyui: config.comfyui || '',
         workflow: config.workflow || '',
+        workflowMap,
         ocrModel: config.ocr_model || '',
       });
       setSettingsOptions({
@@ -479,7 +501,8 @@ const App = () => {
         body: JSON.stringify({
           ollama: settingsDraft.ollama,
           comfyui: settingsDraft.comfyui,
-          workflow: settingsDraft.workflow,
+          workflow: settingsDraft.workflowMap?.t2i || settingsDraft.workflow,
+          workflow_map: settingsDraft.workflowMap,
           ocr_model: settingsDraft.ocrModel,
         }),
       });
@@ -491,10 +514,12 @@ const App = () => {
       const data = await response.json();
       const config = data.config || {};
       const options = data.options || {};
+      const workflowMap = normalizeWorkflowMapFromConfig(config);
       setSettingsDraft({
         ollama: config.ollama || '',
         comfyui: config.comfyui || '',
         workflow: config.workflow || '',
+        workflowMap,
         ocrModel: config.ocr_model || '',
       });
       setSettingsOptions({
@@ -1750,12 +1775,18 @@ const App = () => {
     }
   };
 
-  const generateAiImage = async () => {
+  const generateAiImage = async (mode = 't2i') => {
     if (!aiPrompt.trim()) return;
     setIsAiProcessing(true);
     try {
       const formData = new FormData();
       formData.append('prompt', aiPrompt);
+      const selectedWorkflow = settingsDraft.workflowMap?.[mode] || (mode === 't2i' ? settingsDraft.workflow : '');
+      if (mode !== 't2i' && !selectedWorkflow) {
+        throw new Error(`No workflow mapped for ${mode.toUpperCase()}. Select one in Settings > ComfyUI.`);
+      }
+      if (selectedWorkflow) formData.append('workflow', selectedWorkflow);
+      formData.append('mode', mode);
 
       const response = await fetch(`${API_BASE_URL}/generate-image`, {
         method: 'POST',
@@ -2101,15 +2132,28 @@ const App = () => {
   );
 
   const Topbar = () => (
-    <header className="topbar">
-      <div className="topbar-left">
-        <h2 className="brand-title">OPEN LOVART</h2>
-      </div>
-      <div className="topbar-actions">
-        <button className={`action-tag ${showAiInput ? 'active' : ''}`} onClick={() => setShowAiInput(!showAiInput)}>
-          <Sparkles size={14} /> Magic Generate
-        </button>
-      </div>
+      <header className="topbar">
+        <div className="topbar-left">
+          <h2 className="brand-title">OPEN LOVART</h2>
+        </div>
+        <div className="topbar-actions">
+          {aiModeConfig.map((mode) => (
+            <button
+              key={mode.key}
+              className={`action-tag ${showAiInput && activeAiMode === mode.key ? 'active' : ''}`}
+              onClick={() => {
+                if (showAiInput && activeAiMode === mode.key) {
+                  setShowAiInput(false);
+                  return;
+                }
+                setActiveAiMode(mode.key);
+                setShowAiInput(true);
+              }}
+            >
+              <Sparkles size={14} /> {mode.label}
+            </button>
+          ))}
+        </div>
         <div className="topbar-right">
           <button className="action-tag" onClick={() => { setActiveSettingsTab('comfyui'); setShowSettingsModal(true); }}>
             <Settings size={14} /> Settings
@@ -2233,9 +2277,9 @@ const App = () => {
               placeholder="Describe the image you want to create..."
               value={aiPrompt}
               onChange={(e) => setAiPrompt(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && generateAiImage()}
+              onKeyDown={(e) => e.key === 'Enter' && generateAiImage(activeAiMode)}
             />
-            <button className="ai-gen-btn" onClick={generateAiImage} disabled={isAiProcessing}>
+            <button className="ai-gen-btn" onClick={() => generateAiImage(activeAiMode)} disabled={isAiProcessing}>
               {isAiProcessing ? 'Generating...' : 'Create'}
             </button>
           </div>
@@ -2679,17 +2723,59 @@ const App = () => {
                     />
                   </div>
                   <div className="prop-input-group">
-                    <label>Generate Workflow</label>
+                    <label>T2I Workflow</label>
                     <select
-                      value={settingsDraft.workflow}
-                      onChange={(e) => setSettingsDraft((prev) => ({ ...prev, workflow: e.target.value }))}
+                      value={settingsDraft.workflowMap?.t2i || ''}
+                      onChange={(e) =>
+                        setSettingsDraft((prev) => ({
+                          ...prev,
+                          workflowMap: { ...prev.workflowMap, t2i: e.target.value },
+                          workflow: prev.workflow,
+                        }))
+                      }
                       disabled={isSettingsSaving}
                     >
                       {settingsOptions.workflows.length === 0 && (
-                        <option value={settingsDraft.workflow || ''}>
+                        <option value={settingsDraft.workflowMap?.t2i || ''}>
                           {isSettingsLoading ? 'Loading workflows...' : 'No workflows available'}
                         </option>
                       )}
+                      {settingsOptions.workflows.map((wf) => (
+                        <option key={wf} value={wf}>{wf}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="prop-input-group">
+                    <label>I2I Workflow</label>
+                    <select
+                      value={settingsDraft.workflowMap?.i2i || ''}
+                      onChange={(e) =>
+                        setSettingsDraft((prev) => ({
+                          ...prev,
+                          workflowMap: { ...prev.workflowMap, i2i: e.target.value },
+                        }))
+                      }
+                      disabled={isSettingsSaving}
+                    >
+                      <option value="">{isSettingsLoading ? 'Loading workflows...' : 'No workflows selected'}</option>
+                      {settingsOptions.workflows.map((wf) => (
+                        <option key={wf} value={wf}>{wf}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="prop-input-group">
+                    <label>Upscale Workflow</label>
+                    <select
+                      value={settingsDraft.workflowMap?.upscale || ''}
+                      onChange={(e) =>
+                        setSettingsDraft((prev) => ({
+                          ...prev,
+                          workflowMap: { ...prev.workflowMap, upscale: e.target.value },
+                        }))
+                      }
+                      disabled={isSettingsSaving}
+                    >
+                      <option value="">{isSettingsLoading ? 'Loading workflows...' : 'No workflows selected'}</option>
                       {settingsOptions.workflows.map((wf) => (
                         <option key={wf} value={wf}>{wf}</option>
                       ))}

@@ -6,6 +6,7 @@ import httpx
 import base64
 import asyncio
 import time
+import random
 from typing import List, Optional
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -82,6 +83,133 @@ def resolve_workflow_path(workflow_name: str) -> Optional[str]:
         return path
     return None
 
+
+def normalize_workflow_name(raw_name: str, workflow_list: List[str]) -> str:
+    safe_name = os.path.basename(str(raw_name or "").strip())
+    if not safe_name:
+        return ""
+    if workflow_list and safe_name not in workflow_list:
+        return ""
+    return safe_name
+
+
+def get_node_title(node: dict) -> str:
+    return str((node.get("_meta") or {}).get("title", "")).lower()
+
+
+def resolve_node_connection(value):
+    if not isinstance(value, (list, tuple)):
+        return None
+    if len(value) < 1:
+        return None
+    node_ref = value[0]
+    if isinstance(node_ref, str):
+        return node_ref
+    return None
+
+
+def is_seed_key(key: str) -> bool:
+    key_lower = str(key).lower()
+    return (
+        key_lower == "seed"
+        or key_lower == "noise_seed"
+        or key_lower.endswith("_seed")
+    )
+
+
+def apply_prompt_to_workflow(workflow: dict, prompt: str) -> bool:
+    if not isinstance(workflow, dict):
+        return False
+
+    nodes = [(node_id, node) for node_id, node in workflow.items() if isinstance(node, dict)]
+    if not nodes:
+        return False
+
+    clip_text_inputs = []
+    primitive_candidates = []
+
+    for node_id, node in nodes:
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+
+        class_type = str(node.get("class_type", "")).lower()
+        title = get_node_title(node)
+
+        if "cliptextencode" in class_type and "text" in inputs:
+            src = resolve_node_connection(inputs.get("text"))
+            if src:
+                clip_text_inputs.append((node_id, src, "connected", "negative" in title))
+            elif isinstance(inputs.get("text"), str):
+                clip_text_inputs.append((node_id, None, "inline", "negative" in title))
+
+        if "primitive" in class_type and "string" in class_type and "value" in inputs:
+            if isinstance(inputs.get("value"), str):
+                primitive_candidates.append((node_id, node_id in [src for _, src, _, _ in clip_text_inputs], "negative" in title))
+
+    # Prefer primitive string nodes connected to non-negative CLIP text encode first.
+    positive_linked = {src for _, src, src_type, is_negative in clip_text_inputs if src and not is_negative}
+    if positive_linked:
+        changed = False
+        for node_id, _, _ in [(n, None, None) for n in positive_linked]:
+            node = workflow.get(node_id)
+            inputs = node.get("inputs", {}) if isinstance(node, dict) else {}
+            if isinstance(inputs, dict) and isinstance(inputs.get("value"), str):
+                inputs["value"] = prompt
+                changed = True
+        if changed:
+            return True
+
+    # Fallback to non-negative primitive string nodes.
+    for node_id, _, is_negative in primitive_candidates:
+        if is_negative:
+            continue
+        node = workflow.get(node_id, {})
+        inputs = node.get("inputs", {})
+        if isinstance(inputs, dict) and "value" in inputs and isinstance(inputs["value"], str):
+            inputs["value"] = prompt
+            return True
+
+    # Fallback to direct inline text fields on CLIP text encode nodes.
+    for node_id, _, _, is_negative in clip_text_inputs:
+        if is_negative:
+            continue
+        node = workflow.get(node_id, {})
+        inputs = node.get("inputs", {})
+        if isinstance(inputs, dict) and "text" in inputs and isinstance(inputs["text"], str):
+            inputs["text"] = prompt
+            return True
+
+    # Last resort: update every string-like value field
+    # (except obviously negative prompt text when detectable).
+    for _, node in nodes:
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+        title = get_node_title(node)
+        if "negative" in title:
+            continue
+        for key in ("value", "text"):
+            if key in inputs and isinstance(inputs[key], str):
+                inputs[key] = prompt
+                return True
+
+    return False
+
+
+def randomize_seed_nodes(workflow: dict, seed: int):
+    if not isinstance(workflow, dict):
+        return
+    for _, node in workflow.items():
+        if not isinstance(node, dict):
+            continue
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+        for key, value in inputs.items():
+            if is_seed_key(key) and isinstance(value, int):
+                inputs[key] = seed
+
 def read_persisted_config() -> dict:
     if not os.path.exists(CONFIG_PATH):
         return {}
@@ -97,6 +225,7 @@ def write_persisted_config():
         "ollama": OLLAMA_URL,
         "comfyui": COMFYUI_URL,
         "workflow": GENERATE_WORKFLOW,
+        "workflow_map": WORKFLOW_MAP,
         "ocr_model": OCR_MODEL,
     }
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
@@ -107,12 +236,23 @@ OLLAMA_URL = persisted_config.get("ollama", DEFAULT_OLLAMA_URL)
 COMFYUI_URL = persisted_config.get("comfyui", DEFAULT_COMFYUI_URL)
 
 workflow_options = list_available_workflows()
-GENERATE_WORKFLOW = os.path.basename(persisted_config.get("workflow", DEFAULT_WORKFLOW))
-if workflow_options:
-    if GENERATE_WORKFLOW not in workflow_options:
-        GENERATE_WORKFLOW = workflow_options[0]
-else:
-    GENERATE_WORKFLOW = ""
+workflow_map_from_config = persisted_config.get("workflow_map")
+if not isinstance(workflow_map_from_config, dict):
+    workflow_map_from_config = {}
+
+WORKFLOW_MAP = {
+    "t2i": normalize_workflow_name(
+        workflow_map_from_config.get("t2i", persisted_config.get("workflow", DEFAULT_WORKFLOW)),
+        workflow_options,
+    ),
+    "i2i": normalize_workflow_name(workflow_map_from_config.get("i2i", ""), workflow_options),
+    "upscale": normalize_workflow_name(workflow_map_from_config.get("upscale", ""), workflow_options),
+}
+
+if workflow_options and not WORKFLOW_MAP["t2i"]:
+    WORKFLOW_MAP["t2i"] = workflow_options[0]
+
+GENERATE_WORKFLOW = WORKFLOW_MAP["t2i"]
 
 OCR_MODEL = persisted_config.get("ocr_model", DEFAULT_OCR_MODELS[0])
 if OCR_MODEL not in DEFAULT_OCR_MODELS:
@@ -126,6 +266,7 @@ def build_config_response() -> dict:
             "ollama": OLLAMA_URL,
             "comfyui": COMFYUI_URL,
             "workflow": GENERATE_WORKFLOW,
+            "workflow_map": WORKFLOW_MAP,
             "ocr_model": OCR_MODEL,
         },
         "options": {
@@ -247,23 +388,47 @@ async def get_config():
 
 @app.put("/config/update")
 async def update_config(data: dict):
-    global OLLAMA_URL, COMFYUI_URL, GENERATE_WORKFLOW, OCR_MODEL
+    global OLLAMA_URL, COMFYUI_URL, GENERATE_WORKFLOW, OCR_MODEL, WORKFLOW_MAP
 
     workflows = list_available_workflows()
 
     ollama = str(data.get("ollama", OLLAMA_URL)).strip()
     comfyui = str(data.get("comfyui", COMFYUI_URL)).strip()
-    workflow = os.path.basename(str(data.get("workflow", GENERATE_WORKFLOW)).strip())
+    legacy_workflow = os.path.basename(str(data.get("workflow", GENERATE_WORKFLOW)).strip())
+    raw_workflow_map = data.get("workflow_map")
+    if not isinstance(raw_workflow_map, dict):
+        raw_workflow_map = {}
+
+    workflow = {
+        "t2i": os.path.basename(str(raw_workflow_map.get("t2i", legacy_workflow)).strip()),
+        "i2i": os.path.basename(str(raw_workflow_map.get("i2i", "")).strip()),
+        "upscale": os.path.basename(str(raw_workflow_map.get("upscale", "")).strip()),
+    }
     ocr_model = str(data.get("ocr_model", data.get("ocrModel", OCR_MODEL))).strip()
 
-    if workflows and workflow not in workflows:
-        raise HTTPException(status_code=400, detail="Invalid workflow selection.")
+    if workflows and workflow["t2i"] and workflow["t2i"] not in workflows:
+        raise HTTPException(status_code=400, detail="Invalid workflow selection for T2I.")
+    if workflows and workflow["i2i"] and workflow["i2i"] not in workflows:
+        raise HTTPException(status_code=400, detail="Invalid workflow selection for I2I.")
+    if workflows and workflow["upscale"] and workflow["upscale"] not in workflows:
+        raise HTTPException(status_code=400, detail="Invalid workflow selection for Upscale.")
     if ocr_model not in DEFAULT_OCR_MODELS:
         raise HTTPException(status_code=400, detail="Invalid OCR model selection.")
 
     OLLAMA_URL = ollama or OLLAMA_URL
     COMFYUI_URL = comfyui or COMFYUI_URL
-    GENERATE_WORKFLOW = workflow if workflows else ""
+    if not workflow["t2i"] and workflows:
+        raise HTTPException(status_code=400, detail="T2I workflow is required.")
+
+    if not workflows:
+        WORKFLOW_MAP = {"t2i": "", "i2i": "", "upscale": ""}
+    else:
+        WORKFLOW_MAP = {
+            "t2i": workflow["t2i"] if workflow["t2i"] else WORKFLOW_MAP["t2i"],
+            "i2i": workflow["i2i"],
+            "upscale": workflow["upscale"],
+        }
+    GENERATE_WORKFLOW = WORKFLOW_MAP["t2i"]
     OCR_MODEL = ocr_model
     write_persisted_config()
 
@@ -570,26 +735,33 @@ async def analyze_vision(file: UploadFile = File(...), prompt: str = Form(...)):
         return res.json()
 
 @app.post("/generate-image")
-async def generate_image(prompt: str = Form(...)):
+async def generate_image(
+    prompt: str = Form(...),
+    workflow: str = Form(default=""),
+    mode: str = Form(default="t2i"),
+):
     """
     Generate Image using ComfyUI and Qwen workflow
     """
     try:
-        workflow_path = resolve_workflow_path(GENERATE_WORKFLOW)
+        requested_workflow = workflow.strip() if workflow else ""
+        selected_mode = mode.strip().lower() if mode else "t2i"
+        if not requested_workflow:
+            requested_workflow = (WORKFLOW_MAP.get(selected_mode) if WORKFLOW_MAP else "")
+        if not requested_workflow:
+            requested_workflow = GENERATE_WORKFLOW
+
+        workflow_path = resolve_workflow_path(requested_workflow)
         if not workflow_path:
             raise HTTPException(status_code=500, detail="Generate workflow is not configured.")
             
         with open(workflow_path, "r", encoding="utf-8") as f:
             workflow = json.load(f)
         
-        # Inject prompt into Node 108
-        if "108" in workflow:
-            workflow["108"]["inputs"]["text"] = prompt
+        if not apply_prompt_to_workflow(workflow, prompt):
+            print(f"[generate-image] Warning: could not find a recognized prompt target in workflow '{requested_workflow}'.")
             
-        # Randomize seed in Node 106
-        if "106" in workflow:
-            import random
-            workflow["106"]["inputs"]["seed"] = random.randint(1, 1125899906842624)
+        randomize_seed_nodes(workflow, random.randint(1, 1125899906842624))
             
         img_content = await call_comfyui_workflow(workflow)
         return StreamingResponse(io.BytesIO(img_content), media_type="image/png")
