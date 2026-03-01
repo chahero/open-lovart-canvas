@@ -210,6 +210,102 @@ def randomize_seed_nodes(workflow: dict, seed: int):
             if is_seed_key(key) and isinstance(value, int):
                 inputs[key] = seed
 
+
+def apply_image_to_workflow(workflow: dict, image_filename: str) -> bool:
+    if not isinstance(workflow, dict) or not isinstance(image_filename, str):
+        return False
+
+    image_filename = image_filename.strip()
+    if not image_filename:
+        return False
+
+    mapped_count = 0
+    for _, node in workflow.items():
+        if not isinstance(node, dict):
+            continue
+
+        if str(node.get("class_type", "")).lower() != "loadimage":
+            continue
+
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+
+        prioritized_keys = ("image", "image1", "image2", "control", "base")
+        mapped_this_node = False
+        for key in prioritized_keys:
+            if key in inputs and isinstance(inputs[key], str):
+                inputs[key] = image_filename
+                mapped_this_node = True
+
+        for key, value in inputs.items():
+            if str(key).lower().startswith("image") and isinstance(value, str):
+                inputs[key] = image_filename
+                mapped_this_node = True
+
+        if mapped_this_node:
+            mapped_count += 1
+
+    return mapped_count > 0
+
+
+def _extract_comfy_upload_name(payload):
+    if not isinstance(payload, dict):
+        return None
+
+    for key in ("name", "filename", "file_name"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            subfolder = payload.get("subfolder")
+            if not isinstance(subfolder, str):
+                subfolder = payload.get("subfolder_name")
+            if not isinstance(subfolder, str) or not subfolder.strip():
+                return value.strip()
+            normalized_subfolder = subfolder.strip().replace("\\", "/").strip("/")
+            if not normalized_subfolder:
+                return value.strip()
+            return f"{normalized_subfolder}/{value.strip()}"
+
+    return None
+
+
+async def upload_image_to_comfyui(source_image: UploadFile, subfolder: str = "") -> str:
+    image_data = await source_image.read()
+    if not image_data:
+        raise HTTPException(status_code=400, detail="Source image is empty.")
+
+    safe_filename = source_image.filename or "source.png"
+    content_type = source_image.content_type or "image/png"
+    files = {
+        "image": (safe_filename, image_data, content_type),
+    }
+    data = {
+        "overwrite": "true",
+        "type": "input",
+        "subfolder": subfolder or "",
+    }
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        upload_res = await client.post(
+            f"{COMFYUI_URL}/upload/image",
+            files=files,
+            data=data,
+        )
+
+    if upload_res.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"ComfyUI image upload failed: {upload_res.text}")
+
+    try:
+        upload_json = upload_res.json()
+    except Exception:
+        raise HTTPException(status_code=502, detail="ComfyUI image upload response is not JSON.")
+
+    uploaded_filename = _extract_comfy_upload_name(upload_json)
+    if not uploaded_filename:
+        raise HTTPException(status_code=502, detail="ComfyUI image upload response does not include filename.")
+
+    return uploaded_filename
+
 def read_persisted_config() -> dict:
     if not os.path.exists(CONFIG_PATH):
         return {}
@@ -739,6 +835,7 @@ async def generate_image(
     prompt: str = Form(...),
     workflow: str = Form(default=""),
     mode: str = Form(default="t2i"),
+    source_image: UploadFile = File(default=None),
 ):
     """
     Generate Image using ComfyUI and Qwen workflow
@@ -760,9 +857,22 @@ async def generate_image(
         
         if not apply_prompt_to_workflow(workflow, prompt):
             print(f"[generate-image] Warning: could not find a recognized prompt target in workflow '{requested_workflow}'.")
-            
+
+        if selected_mode == "i2i":
+            if not source_image:
+                raise HTTPException(
+                    status_code=400,
+                    detail="I2I generation requires an image source. Select one image layer on canvas.",
+                )
+            source_image_name = await upload_image_to_comfyui(source_image)
+            if not apply_image_to_workflow(workflow, source_image_name):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Could not map source image into workflow. Configure a workflow with a LoadImage node.",
+                )
+             
         randomize_seed_nodes(workflow, random.randint(1, 1125899906842624))
-            
+             
         img_content = await call_comfyui_workflow(workflow)
         return StreamingResponse(io.BytesIO(img_content), media_type="image/png")
     except Exception as e:

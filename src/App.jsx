@@ -138,6 +138,9 @@ const App = () => {
   const [segmentText, setSegmentText] = useState('');
   const [segmentTarget, setSegmentTarget] = useState(null);
   const [aiPrompt, setAiPrompt] = useState('');
+  const [showAiValidationModal, setShowAiValidationModal] = useState(false);
+  const [aiValidationTitle, setAiValidationTitle] = useState('AI Generation Error');
+  const [aiValidationMessage, setAiValidationMessage] = useState('');
   const [eraserSize, setEraserSize] = useState(28);
   const [maskBrushSize, setMaskBrushSize] = useState(36);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -491,6 +494,10 @@ const App = () => {
   useEffect(() => {
     if (showSettingsModal) loadServerSettings();
   }, [showSettingsModal, loadServerSettings]);
+
+  useEffect(() => {
+    loadServerSettings();
+  }, [loadServerSettings]);
 
   const saveServerSettings = async () => {
     setIsSettingsSaving(true);
@@ -1775,12 +1782,50 @@ const App = () => {
     }
   };
 
+  const validateI2ISourceSelection = () => {
+    const canvas = fabricCanvas.current;
+    const active = canvas?.getActiveObject?.();
+    if (!canvas || !active || (active.type !== 'FabricImage' && active.type !== 'image')) {
+      setAiValidationTitle('AI Generation Error');
+      setAiValidationMessage('I2I generation requires an image layer selected.');
+      setShowAiValidationModal(true);
+      return false;
+    }
+    return true;
+  };
+
   const generateAiImage = async (mode = 't2i') => {
+    if (mode === 'i2i' && !validateI2ISourceSelection()) return;
     if (!aiPrompt.trim()) return;
     setIsAiProcessing(true);
     try {
+      const showAiError = (title, message) => {
+        setAiValidationTitle(title || 'AI Generation Error');
+        setAiValidationMessage(message || 'An error occurred while generating image.');
+        setShowAiValidationModal(true);
+      };
+
       const formData = new FormData();
       formData.append('prompt', aiPrompt);
+
+      if (mode === 'i2i') {
+        const canvas = fabricCanvas.current;
+        if (!canvas) {
+          showAiError('AI Generation Error', 'Canvas is not available.');
+          return;
+        }
+
+        const active = canvas.getActiveObject();
+        if (!active || (active.type !== 'FabricImage' && active.type !== 'image')) {
+          showAiError('AI Generation Error', 'I2I generation requires an image layer selected.');
+          return;
+        }
+
+        const sourceImageDataURL = active.toDataURL({ format: 'png' });
+        const sourceImageBlob = await (await fetch(sourceImageDataURL)).blob();
+        formData.append('source_image', sourceImageBlob, 'source.png');
+      }
+
       const selectedWorkflow = settingsDraft.workflowMap?.[mode] || (mode === 't2i' ? settingsDraft.workflow : '');
       if (mode !== 't2i' && !selectedWorkflow) {
         throw new Error(`No workflow mapped for ${mode.toUpperCase()}. Select one in Settings > ComfyUI.`);
@@ -1814,7 +1859,9 @@ const App = () => {
       setAiPrompt('');
     } catch (err) {
       console.error(err);
-      alert('AI Generation Error: ' + err.message);
+      setAiValidationTitle('AI Generation Error');
+      setAiValidationMessage(`AI Generation Error: ${err.message || 'Unknown error.'}`);
+      setShowAiValidationModal(true);
     } finally {
       setIsAiProcessing(false);
     }
@@ -2137,22 +2184,25 @@ const App = () => {
           <h2 className="brand-title">OPEN LOVART</h2>
         </div>
         <div className="topbar-actions">
-          {aiModeConfig.map((mode) => (
-            <button
-              key={mode.key}
-              className={`action-tag ${showAiInput && activeAiMode === mode.key ? 'active' : ''}`}
-              onClick={() => {
-                if (showAiInput && activeAiMode === mode.key) {
-                  setShowAiInput(false);
-                  return;
-                }
-                setActiveAiMode(mode.key);
-                setShowAiInput(true);
-              }}
-            >
-              <Sparkles size={14} /> {mode.label}
-            </button>
-          ))}
+            {aiModeConfig.map((mode) => (
+              <button
+                key={mode.key}
+                className={`action-tag ${showAiInput && activeAiMode === mode.key ? 'active' : ''}`}
+                onClick={() => {
+                  if (showAiInput && activeAiMode === mode.key) {
+                    setShowAiInput(false);
+                    return;
+                  }
+                  if (mode.key === 'i2i') {
+                    if (!validateI2ISourceSelection()) return;
+                  }
+                  setActiveAiMode(mode.key);
+                  setShowAiInput(true);
+                }}
+              >
+                <Sparkles size={14} /> {mode.label}
+              </button>
+            ))}
         </div>
         <div className="topbar-right">
           <button className="action-tag" onClick={() => { setActiveSettingsTab('comfyui'); setShowSettingsModal(true); }}>
@@ -2277,9 +2327,16 @@ const App = () => {
               placeholder="Describe the image you want to create..."
               value={aiPrompt}
               onChange={(e) => setAiPrompt(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && generateAiImage(activeAiMode)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return;
+                if (activeAiMode === 'i2i' && !validateI2ISourceSelection()) return;
+                generateAiImage(activeAiMode);
+              }}
             />
-            <button className="ai-gen-btn" onClick={() => generateAiImage(activeAiMode)} disabled={isAiProcessing}>
+            <button className="ai-gen-btn" onClick={() => {
+              if (activeAiMode === 'i2i' && !validateI2ISourceSelection()) return;
+              generateAiImage(activeAiMode);
+            }} disabled={isAiProcessing}>
               {isAiProcessing ? 'Generating...' : 'Create'}
             </button>
           </div>
@@ -2846,6 +2903,25 @@ const App = () => {
             </div>
             <div className="modal-actions">
               <button className="modal-btn confirm danger" onClick={() => setShowExportNoSelectionModal(false)}>
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAiValidationModal && (
+        <div className="modal-overlay" onClick={() => setShowAiValidationModal(false)}>
+          <div className="confirm-modal" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-icon-circle danger">
+              <AlertTriangle size={28} />
+            </div>
+            <div className="modal-text">
+              <h3>{aiValidationTitle}</h3>
+              <p>{aiValidationMessage}</p>
+            </div>
+            <div className="modal-actions">
+              <button className="modal-btn confirm danger" onClick={() => setShowAiValidationModal(false)}>
                 OK
               </button>
             </div>
