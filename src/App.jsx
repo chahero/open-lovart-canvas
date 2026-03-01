@@ -2,8 +2,8 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Plus, MousePointer2, Square, Type, Image as ImageIcon, Maximize,
   Layers as LayersIcon, Settings, Download, Trash2, Eye, EyeOff, Eraser, Circle,
-  MoreHorizontal, Sparkles, Scissors, Target, Edit3, RotateCcw,
-  RotateCw, Undo2, Redo2, Grid, Search, Hand, AlignLeft, AlignCenter,
+  MoreHorizontal, Sparkles, Scissors, Target, Edit3, RotateCcw, AlertTriangle,
+  RotateCw, Undo2, Redo2, Search, Hand, AlignLeft, AlignCenter,
   AlignRight, AlignVerticalJustifyStart, AlignVerticalJustifyCenter,
   AlignVerticalJustifyEnd, Group, Ungroup, Bold, Italic, Type as TypeIcon,
   ChevronUp, ChevronDown
@@ -155,7 +155,11 @@ const App = () => {
   const [activePropsTab, setActivePropsTab] = useState('image');
   const [showAlignmentHint, setShowAlignmentHint] = useState(false);
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
+  const [showExportOptionsModal, setShowExportOptionsModal] = useState(false);
+  const [showExportNoSelectionModal, setShowExportNoSelectionModal] = useState(false);
   const [exportFormat, setExportFormat] = useState('png');
+  const [exportWidth, setExportWidth] = useState('');
+  const [exportHeight, setExportHeight] = useState('');
   const [settingsOptions, setSettingsOptions] = useState({
     workflows: [],
     ocrModels: [],
@@ -1236,47 +1240,63 @@ const App = () => {
     };
   };
 
-  const exportSelectedArea = () => {
+  const exportSelectedArea = async () => {
+    const resizeImageDataURL = (sourceDataURL, width, height, format, quality) => new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = width;
+        tempCanvas.height = height;
+        const ctx = tempCanvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Failed to initialize temporary canvas.'));
+          return;
+        }
+
+        if (format === 'jpeg') {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, width, height);
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(tempCanvas.toDataURL(`image/${format}`, quality));
+      };
+      img.onerror = () => reject(new Error('Failed to resize export image.'));
+      img.src = sourceDataURL;
+    });
+
     const canvas = fabricCanvas.current;
-    if (!canvas) return;
+    if (!canvas) return false;
 
     const selectedCount = canvas.getActiveObjects().length;
     if (selectedCount === 0) {
-      alert('Select at least one layer to export.');
-      return;
+      setShowExportNoSelectionModal(true);
+      return false;
     }
 
     const bounds = getSelectedBounds();
     if (!bounds) {
       alert('Could not determine selection bounds.');
-      return;
+      return false;
     }
 
     const selectedObjects = canvas.getActiveObjects().filter((obj) => obj.id !== 'world-bounds');
     if (!selectedObjects.length) {
       alert('Could not determine selectable objects for export.');
-      return;
+      return false;
     }
 
     const normalizedFormat = exportFormat === 'jpg' ? 'jpeg' : exportFormat;
     const ext = exportFormat === 'jpg' ? 'jpg' : exportFormat;
     const quality = normalizedFormat === 'png' ? 1 : 0.92;
     const activeObject = canvas.getActiveObject();
+    const widthInput = Number.parseInt(exportWidth, 10);
+    const heightInput = Number.parseInt(exportHeight, 10);
+    const hasCustomSize = Number.isFinite(widthInput) && widthInput > 0 && Number.isFinite(heightInput) && heightInput > 0;
     let dataURL = null;
 
     const isActiveSelection = activeObject?.type?.toLowerCase() === 'activeselection';
 
-    if (selectedCount >= 2 && isActiveSelection) {
-      try {
-        dataURL = activeObject.toDataURL({
-          format: normalizedFormat,
-          quality,
-        });
-      } catch (err) {
-        alert('Export failed for multiple selected layers. Please reselect and try again.');
-        return;
-      }
-    } else if (activeObject && isActiveSelection) {
+    if (isActiveSelection) {
       try {
         dataURL = activeObject.toDataURL({
           format: normalizedFormat,
@@ -1313,18 +1333,42 @@ const App = () => {
 
     if (!dataURL) {
       alert('Export failed to generate image data.');
-      return;
+      return false;
+    }
+
+    if (hasCustomSize) {
+      try {
+        dataURL = await resizeImageDataURL(dataURL, widthInput, heightInput, normalizedFormat, quality);
+      } catch (err) {
+        alert('Export failed while resizing to requested size.');
+        return false;
+      }
     }
 
     const link = document.createElement('a');
+    const sizeSuffix = hasCustomSize ? `-${widthInput}x${heightInput}` : '';
     try {
       link.href = dataURL;
-      link.download = `selection-export.${ext}`;
+      link.download = `selection-export${sizeSuffix}.${ext}`;
       link.click();
     } catch (err) {
       alert('Export failed. Please try again.');
+      return false;
     }
 
+    return true;
+  };
+
+  const openExportOptions = () => {
+    const bounds = getSelectedBounds();
+    if (!bounds) {
+      setShowExportNoSelectionModal(true);
+      return;
+    }
+
+    setExportWidth(String(Math.max(1, Math.round(bounds.width))));
+    setExportHeight(String(Math.max(1, Math.round(bounds.height))));
+    setShowExportOptionsModal(true);
   };
 
   const canAlignSelection = () => {
@@ -2101,23 +2145,15 @@ const App = () => {
           <Sparkles size={14} /> Magic Generate
         </button>
       </div>
-      <div className="topbar-right">
-        <button className="action-tag" onClick={() => setShowGrid(!showGrid)}><Grid size={14} /> Grid</button>
-        <button className="action-tag" onClick={() => setShowSettingsModal(true)}><Settings size={14} /> Settings</button>
-        <select
-          className="export-format-select"
-          value={exportFormat}
-          onChange={(e) => setExportFormat(e.target.value)}
-        >
-          <option value="png">PNG</option>
-          <option value="jpg">JPG</option>
-          <option value="webp">WEBP</option>
-        </select>
-        <button className="primary-btn" onClick={exportSelectedArea}>
-          <Download size={16} /> Export
-        </button>
-      </div>
-    </header>
+        <div className="topbar-right">
+          <button className="action-tag" onClick={() => setShowSettingsModal(true)}>
+            <Settings size={14} /> Settings
+          </button>
+          <button className="action-tag" onClick={openExportOptions}>
+            <Download size={14} /> Export
+          </button>
+        </div>
+      </header>
   );
 
   const canAlignNow = canAlignSelection();
@@ -2721,6 +2757,93 @@ const App = () => {
         </div>
       )}
 
+      {showExportNoSelectionModal && (
+        <div className="modal-overlay" onClick={() => setShowExportNoSelectionModal(false)}>
+          <div className="confirm-modal" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-icon-circle danger">
+              <AlertTriangle size={28} />
+            </div>
+            <div className="modal-text">
+              <h3>No Layer Selected</h3>
+              <p>Select one or more layers first before exporting.</p>
+            </div>
+            <div className="modal-actions">
+              <button className="modal-btn confirm danger" onClick={() => setShowExportNoSelectionModal(false)}>
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showExportOptionsModal && (
+        <div className="modal-overlay" onClick={() => setShowExportOptionsModal(false)}>
+          <div className="confirm-modal" style={{ maxWidth: 460, alignItems: 'stretch' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-text" style={{ textAlign: 'left' }}>
+              <h3>Export Settings</h3>
+              <p>Choose image format and optional output size.</p>
+            </div>
+            <div className="props-body">
+              <div className="prop-input-group">
+                <label>Format</label>
+                <select
+                  className="export-format-select"
+                  value={exportFormat}
+                  onChange={(e) => setExportFormat(e.target.value)}
+                >
+                  <option value="png">PNG</option>
+                  <option value="jpg">JPG</option>
+                  <option value="webp">WEBP</option>
+                </select>
+              </div>
+              <div className="prop-input-group">
+                <label>Export Size (px)</label>
+                <div className="export-size-control">
+                  <input
+                    className="export-size-input"
+                    type="number"
+                    min="1"
+                    step="1"
+                    placeholder="Width"
+                    value={exportWidth}
+                    onChange={(e) => setExportWidth(e.target.value)}
+                    aria-label="Export width"
+                  />
+                  <span className="export-size-hint">x</span>
+                  <input
+                    className="export-size-input"
+                    type="number"
+                    min="1"
+                    step="1"
+                    placeholder="Height"
+                    value={exportHeight}
+                    onChange={(e) => setExportHeight(e.target.value)}
+                    aria-label="Export height"
+                  />
+                </div>
+                <span className="export-size-hint export-size-hint--muted">
+                  Leave blank to keep current selected area size.
+                </span>
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button className="modal-btn cancel" onClick={() => setShowExportOptionsModal(false)}>
+                Cancel
+              </button>
+              <button
+                className="modal-btn confirm"
+                onClick={async () => {
+                  const ok = await exportSelectedArea();
+                  if (ok) setShowExportOptionsModal(false);
+                }}
+              >
+                Export
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {pendingDeleteAsset && (
         <div className="modal-overlay" onClick={() => !isDeletingAsset && setPendingDeleteAsset(null)}>
           <div className="confirm-modal" onClick={(e) => e.stopPropagation()}>
@@ -2869,8 +2992,9 @@ const App = () => {
           </div>
         </div>
       )}
-    </div >
+        </div>
   );
 };
 
 export default App;
+

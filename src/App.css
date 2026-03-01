@@ -191,6 +191,50 @@ body {
   border-color: rgba(100, 116, 139, 0.8);
 }
 
+.export-size-control {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 0 8px;
+  gap: 6px;
+}
+
+.export-size-input {
+  border: none;
+  outline: none;
+  width: 78px;
+  height: 100%;
+  font-size: 12px;
+  font-weight: 700;
+  color: #1f2937;
+  background: transparent;
+  text-align: right;
+  appearance: textfield;
+  margin: 0;
+}
+
+.export-size-input::-webkit-outer-spin-button,
+.export-size-input::-webkit-inner-spin-button {
+  appearance: none;
+  margin: 0;
+}
+
+.export-size-hint {
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.export-size-hint--muted {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+}
+
 .action-tag {
   height: 34px;
   padding: 6px 12px;
