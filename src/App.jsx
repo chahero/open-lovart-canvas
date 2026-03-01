@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Plus, MousePointer2, Square, Type, Image as ImageIcon, Maximize,
   Layers as LayersIcon, Settings, Download, Trash2, Eye, EyeOff, Eraser, Circle,
-  MoreHorizontal, Sparkles, Scissors, Target, Edit3, RotateCcw, AlertTriangle,
+  MoreHorizontal, Sparkles, Scissors, Target, Edit3, RotateCcw, AlertTriangle, Link2, Unlink2,
   RotateCw, Undo2, Redo2, Search, Hand, AlignLeft, AlignCenter,
   AlignRight, AlignVerticalJustifyStart, AlignVerticalJustifyCenter,
   AlignVerticalJustifyEnd, Group, Ungroup, Bold, Italic, Type as TypeIcon,
@@ -29,6 +29,16 @@ const SHORTCUT_DEFINITIONS = [
   { id: 'toggleShortcuts', label: 'Toggle This Help', key: '?', keyLabel: '?' },
 ];
 const ROUNDNESS_DRAG_SENSITIVITY = 0.7;
+const EXPORT_PRESETS = [
+  { label: '1024 × 800', width: 1024, height: 800 },
+  { label: '1080 × 1080', width: 1080, height: 1080 },
+  { label: '1366 × 768', width: 1366, height: 768 },
+  { label: '1440 × 1024', width: 1440, height: 1024 },
+  { label: '1920 × 1080', width: 1920, height: 1080 },
+  { label: '2048 × 2048', width: 2048, height: 2048 },
+  { label: '1080 × 1920', width: 1080, height: 1920 },
+  { label: '1200 × 1200', width: 1200, height: 1200 },
+];
 
 let hasConfiguredRectRoundControls = false;
 const buildRoundControl = () => {
@@ -160,6 +170,8 @@ const App = () => {
   const [exportFormat, setExportFormat] = useState('png');
   const [exportWidth, setExportWidth] = useState('');
   const [exportHeight, setExportHeight] = useState('');
+  const [exportKeepAspect, setExportKeepAspect] = useState(true);
+  const [exportAspectRatio, setExportAspectRatio] = useState(1);
   const [settingsOptions, setSettingsOptions] = useState({
     workflows: [],
     ocrModels: [],
@@ -1366,9 +1378,36 @@ const App = () => {
       return;
     }
 
-    setExportWidth(String(Math.max(1, Math.round(bounds.width))));
-    setExportHeight(String(Math.max(1, Math.round(bounds.height))));
+    const width = Math.max(1, Math.round(bounds.width));
+    const height = Math.max(1, Math.round(bounds.height));
+    setExportWidth(String(width));
+    setExportHeight(String(height));
+    setExportAspectRatio(height > 0 ? width / height : 1);
     setShowExportOptionsModal(true);
+  };
+
+  const applyExportPreset = (width, height) => {
+    setExportWidth(String(width));
+    setExportHeight(String(height));
+    if (exportKeepAspect && height > 0) setExportAspectRatio(width / height);
+  };
+
+  const updateExportWidth = (nextWidth) => {
+    setExportWidth(nextWidth);
+    if (!exportKeepAspect || !exportAspectRatio) return;
+    const parsedWidth = Number.parseInt(nextWidth, 10);
+    if (!Number.isFinite(parsedWidth) || parsedWidth <= 0) return;
+    const nextHeight = Math.max(1, Math.round(parsedWidth / exportAspectRatio));
+    setExportHeight(String(nextHeight));
+  };
+
+  const updateExportHeight = (nextHeight) => {
+    setExportHeight(nextHeight);
+    if (!exportKeepAspect || !exportAspectRatio) return;
+    const parsedHeight = Number.parseInt(nextHeight, 10);
+    if (!Number.isFinite(parsedHeight) || parsedHeight <= 0) return;
+    const nextWidth = Math.max(1, Math.round(parsedHeight * exportAspectRatio));
+    setExportWidth(String(nextWidth));
   };
 
   const canAlignSelection = () => {
@@ -2280,9 +2319,9 @@ const App = () => {
       {/* Control Panel */}
       <aside className="control-panel">
         <div className="panel-tabs">
-          <button className={`panel-tab ${activePanelTab === 'properties' ? 'active' : ''}`} onClick={() => setActivePanelTab('properties')}>Properties</button>
-          <button className={`panel-tab ${activePanelTab === 'library' ? 'active' : ''}`} onClick={() => setActivePanelTab('library')}>Library</button>
+          <button className={`panel-tab ${activePanelTab === 'properties' ? 'active' : ''}`} onClick={() => setActivePanelTab('properties')}>Properties</button>          
           <button className={`panel-tab ${activePanelTab === 'layers' ? 'active' : ''}`} onClick={() => setActivePanelTab('layers')}>Layers</button>
+          <button className={`panel-tab ${activePanelTab === 'library' ? 'active' : ''}`} onClick={() => setActivePanelTab('library')}>Library</button>
         </div>
 
         {activePanelTab === 'properties' && (
@@ -2796,35 +2835,59 @@ const App = () => {
                   <option value="webp">WEBP</option>
                 </select>
               </div>
-              <div className="prop-input-group">
-                <label>Export Size (px)</label>
-                <div className="export-size-control">
-                  <input
-                    className="export-size-input"
-                    type="number"
-                    min="1"
-                    step="1"
-                    placeholder="Width"
-                    value={exportWidth}
-                    onChange={(e) => setExportWidth(e.target.value)}
-                    aria-label="Export width"
-                  />
-                  <span className="export-size-hint">x</span>
-                  <input
-                    className="export-size-input"
-                    type="number"
-                    min="1"
-                    step="1"
-                    placeholder="Height"
-                    value={exportHeight}
-                    onChange={(e) => setExportHeight(e.target.value)}
-                    aria-label="Export height"
-                  />
+                <div className="prop-input-group">
+                  <label>Export Size (px)</label>
+                  <div className="export-size-control-row">
+                    <div className="export-size-control">
+                      <input
+                        className="export-size-input"
+                        type="number"
+                        min="1"
+                        step="1"
+                        placeholder="Width"
+                        value={exportWidth}
+                        onChange={(e) => updateExportWidth(e.target.value)}
+                        aria-label="Export width"
+                      />
+                      <span className="export-size-hint">x</span>
+                      <input
+                        className="export-size-input"
+                        type="number"
+                        min="1"
+                        step="1"
+                        placeholder="Height"
+                        value={exportHeight}
+                        onChange={(e) => updateExportHeight(e.target.value)}
+                        aria-label="Export height"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className={`export-aspect-toggle ${exportKeepAspect ? 'active' : ''}`}
+                      onClick={() => setExportKeepAspect((v) => !v)}
+                      aria-pressed={exportKeepAspect}
+                      title={exportKeepAspect ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
+                    >
+                      {exportKeepAspect ? <Link2 size={12} /> : <Unlink2 size={12} />}
+                      <span>Keep Ratio</span>
+                    </button>
+                  </div>
+                  <div className="export-preset-group">
+                    {EXPORT_PRESETS.map((preset) => (
+                      <button
+                        type="button"
+                        className="export-preset-btn"
+                        key={`${preset.width}x${preset.height}`}
+                        onClick={() => applyExportPreset(preset.width, preset.height)}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="export-size-hint export-size-hint--muted">
+                    Leave blank to keep current selected area size.
+                  </span>
                 </div>
-                <span className="export-size-hint export-size-hint--muted">
-                  Leave blank to keep current selected area size.
-                </span>
-              </div>
             </div>
             <div className="modal-actions">
               <button className="modal-btn cancel" onClick={() => setShowExportOptionsModal(false)}>
