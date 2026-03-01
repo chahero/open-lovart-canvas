@@ -1567,7 +1567,10 @@ const App = () => {
     if (!canvas) return;
     const rect = new fabric.Rect({
       width: 150, height: 150, rx: 0, ry: 0,
-      fill: 'rgba(59, 130, 246, 0.5)', stroke: 'transparent', strokeWidth: 0,
+      fill: '#3b82f6',
+      opacity: 0.5,
+      stroke: 'transparent',
+      strokeWidth: 0,
       strokeUniform: true,
     });
     canvas.add(rect);
@@ -1585,7 +1588,8 @@ const App = () => {
     if (!canvas) return;
     const circle = new fabric.Circle({
       radius: 75,
-      fill: 'rgba(59, 130, 246, 0.5)',
+      fill: '#3b82f6',
+      opacity: 0.5,
       stroke: 'transparent',
       strokeWidth: 0
     });
@@ -1683,8 +1687,17 @@ const App = () => {
   };
 
   const ensureHex = (color) => {
-    if (!color || typeof color !== 'string' || !color.startsWith('#')) return '#6366f1';
-    return color;
+    if (!color || typeof color !== 'string') return '#3b82f6';
+    if (color.startsWith('#')) return color;
+    const rgbaMatch = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([0-9]*\.?[0-9]+))?\s*\)/i);
+    if (rgbaMatch) {
+      const r = Math.max(0, Math.min(255, Number(rgbaMatch[1] || 0)));
+      const g = Math.max(0, Math.min(255, Number(rgbaMatch[2] || 0)));
+      const b = Math.max(0, Math.min(255, Number(rgbaMatch[3] || 0)));
+      const toHex = (n) => n.toString(16).padStart(2, '0');
+      return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toLowerCase();
+    }
+    return '#3b82f6';
   };
 
   const handleFillDraftInput = (value) => {
