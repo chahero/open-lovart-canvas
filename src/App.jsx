@@ -3,7 +3,7 @@ import {
   Plus, MousePointer2, Square, Type, Image as ImageIcon, Maximize,
   Layers as LayersIcon, Settings, Download, Trash2, Eye, EyeOff, Eraser, Circle,
   MoreHorizontal, Sparkles, Scissors, Target, Edit3, RotateCcw, AlertTriangle, Link2, Unlink2,
-  RotateCw, Undo2, Redo2, Search, Hand, AlignLeft, AlignCenter,
+  RotateCw, Search, Hand, AlignLeft, AlignCenter,
   AlignRight, AlignVerticalJustifyStart, AlignVerticalJustifyCenter,
   AlignVerticalJustifyEnd, Group, Ungroup, Bold, Italic, Type as TypeIcon,
   ChevronUp, ChevronDown
@@ -24,8 +24,6 @@ const SHORTCUT_DEFINITIONS = [
   { id: 'circle', label: 'Circle', key: 'o', keyLabel: 'O' },
   { id: 'text', label: 'Text', key: 't', keyLabel: 'T' },
   { id: 'imageUpload', label: 'Image Upload', key: 'i', keyLabel: 'I' },
-  { id: 'undo', label: 'Undo', key: 'z', keyLabel: 'Ctrl + Z', ctrl: true },
-  { id: 'redo', label: 'Redo', key: 'y', keyLabel: 'Ctrl + Y', ctrl: true },
   { id: 'toggleShortcuts', label: 'Toggle This Help', key: '?', keyLabel: '?' },
 ];
 const ROUNDNESS_DRAG_SENSITIVITY = 0.7;
@@ -129,8 +127,6 @@ const App = () => {
   const [showGrid, setShowGrid] = useState(true);
   const [snapEnabled, setSnapEnabled] = useState(true);
   const [zoom, setZoom] = useState(1);
-  const [history, setHistory] = useState([]);
-  const [historyStep, setHistoryStep] = useState(-1);
   const [canvasBg, setCanvasBg] = useState('#ffffff');
   const [renamingId, setRenamingId] = useState(null);
   const [draggedLayerIndex, setDraggedLayerIndex] = useState(null);
@@ -180,7 +176,6 @@ const App = () => {
   const activeToolRef = useRef(activeTool);
   const maskStrokesRef = useRef(maskStrokes);
   const maskTargetIdRef = useRef(maskTargetId);
-  const isSavingHistory = useRef(false);
   const alignmentHintTimerRef = useRef(null);
   const dragCounter = useRef(0);
   const isSpacePanRef = useRef(false);
@@ -559,7 +554,6 @@ const App = () => {
       canvas.setActiveObject(img);
       setActiveTool('select');
       canvas.requestRenderAll();
-      saveHistory();
     } catch (err) {
       console.error(err);
       alert('Failed to insert library asset: ' + err.message);
@@ -626,47 +620,10 @@ const App = () => {
     }
   };
 
-  // --- History (Undo/Redo) Logic ---
-  const saveHistory = useCallback(() => {
-    if (!fabricCanvas.current || isSavingHistory.current) return;
-    const json = fabricCanvas.current.toJSON();
-    const newHistory = history.slice(0, historyStep + 1);
-    newHistory.push(JSON.stringify(json));
-    if (newHistory.length > 50) newHistory.shift();
-    setHistory(newHistory);
-    setHistoryStep(newHistory.length - 1);
-  }, [history, historyStep]);
-
   const hydrateRoundControlsForRects = () => {
     const canvas = fabricCanvas.current;
     if (!canvas) return;
     canvas.getObjects().forEach((obj) => ensureRectRoundControls(obj));
-  };
-
-  const undo = () => {
-    if (historyStep <= 0) return;
-    isSavingHistory.current = true;
-    const prevStep = historyStep - 1;
-    const state = JSON.parse(history[prevStep]);
-    fabricCanvas.current.loadFromJSON(state).then(() => {
-      hydrateRoundControlsForRects();
-      fabricCanvas.current.renderAll();
-      setHistoryStep(prevStep);
-      isSavingHistory.current = false;
-    });
-  };
-
-  const redo = () => {
-    if (historyStep >= history.length - 1) return;
-    isSavingHistory.current = true;
-    const nextStep = historyStep + 1;
-    const state = JSON.parse(history[nextStep]);
-    fabricCanvas.current.loadFromJSON(state).then(() => {
-      hydrateRoundControlsForRects();
-      fabricCanvas.current.renderAll();
-      setHistoryStep(nextStep);
-      isSavingHistory.current = false;
-    });
   };
 
   // --- Canvas Lifecycle ---
@@ -764,11 +721,10 @@ const App = () => {
     canvas.on('object:added', (evt) => {
       ensureRectRoundControls(evt?.target);
       stabilizeRasterObject(evt?.target);
-      if (!isSavingHistory.current) saveHistory();
       syncUI();
     });
-    canvas.on('object:removed', () => { if (!isSavingHistory.current) saveHistory(); syncUI(); });
-    canvas.on('object:modified', () => { if (!isSavingHistory.current) saveHistory(); syncUI(); });
+    canvas.on('object:removed', () => { syncUI(); });
+    canvas.on('object:modified', () => { syncUI(); });
     canvas.on('object:scaling', syncUI);
     canvas.on('selection:created', () => {
       const targets = canvas.getActiveObjects?.() || [];
@@ -888,14 +844,11 @@ const App = () => {
       loadFabricImage(dataURL).then((nextImg) => {
         nextImg.set(props);
         nextImg.setCoords();
-        isSavingHistory.current = true;
         canvas.remove(target);
         canvas.add(nextImg);
         canvas.setActiveObject(nextImg);
-        isSavingHistory.current = false;
         canvas.requestRenderAll();
         syncUI();
-        saveHistory();
       }).catch((err) => {
         console.error('Failed to finalize eraser image:', err);
       });
@@ -1121,8 +1074,6 @@ const App = () => {
           case 'circle': addCircle(); break;
           case 'text': addText(); break;
           case 'imageUpload': imageInputRef.current?.click(); break;
-          case 'undo': undo(); break;
-          case 'redo': redo(); break;
           case 'toggleShortcuts': setShowShortcutsModal((prev) => !prev); break;
           default: break;
         }
@@ -1168,7 +1119,6 @@ const App = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
-    saveHistory();
 
     return () => {
       if (fabricCanvas.current) {
@@ -1195,7 +1145,6 @@ const App = () => {
     if (!activeSelection || activeSelection.type !== 'activeSelection') return;
     activeSelection.toGroup();
     canvas.requestRenderAll();
-    saveHistory();
   };
 
   const ungroupSelected = () => {
@@ -1204,7 +1153,6 @@ const App = () => {
     if (!activeGroup || activeGroup.type !== 'group') return;
     activeGroup.toActiveSelection();
     canvas.requestRenderAll();
-    saveHistory();
   };
 
   const getSelectedBounds = () => {
@@ -1486,7 +1434,6 @@ const App = () => {
     }
     activeObjects.forEach((obj) => obj.setCoords());
     canvas.renderAll();
-    saveHistory();
   };
 
   const resetZoom = () => {
@@ -1580,7 +1527,6 @@ const App = () => {
     canvas.setActiveObject(rect);
     canvas.requestRenderAll();
     syncUI();
-    saveHistory();
   };
 
   const addCircle = () => {
@@ -1600,7 +1546,6 @@ const App = () => {
     canvas.setActiveObject(circle);
     canvas.requestRenderAll();
     syncUI();
-    saveHistory();
   };
 
   const addText = () => {
@@ -1616,7 +1561,6 @@ const App = () => {
     canvas.setActiveObject(text);
     canvas.requestRenderAll();
     syncUI();
-    saveHistory();
   };
 
   const addImage = (file, dropPoint = null) => {
@@ -1648,7 +1592,6 @@ const App = () => {
         canvas.setActiveObject(img);
         setActiveTool('select');
         canvas.requestRenderAll();
-        saveHistory();
       } catch (err) {
         console.error("Failed to load image:", err);
       }
@@ -1678,12 +1621,10 @@ const App = () => {
         setSelectedObject((prev) => (prev ? { ...prev, fill: nextFill } : prev));
       }
       syncUI();
-      saveHistory();
       return;
     }
 
     syncUI();
-    saveHistory();
   };
 
   const ensureHex = (color) => {
@@ -1748,7 +1689,6 @@ const App = () => {
     if (beforeFill !== value || changedFromSession) {
       setSelectedObject((prev) => (prev ? { ...prev, fill: value } : prev));
       syncUI();
-      saveHistory();
     }
   };
 
@@ -1800,7 +1740,6 @@ const App = () => {
       canvas.add(img);
       canvas.setActiveObject(img);
       syncUI();
-      saveHistory();
       setShowRemoveBgConfirm(false); // Close modal on success
     } catch (err) {
       console.error(err);
@@ -1839,7 +1778,6 @@ const App = () => {
       canvas.requestRenderAll();
 
       syncUI();
-      saveHistory();
       setShowAiInput(false);
       setAiPrompt('');
     } catch (err) {
@@ -2007,7 +1945,6 @@ const App = () => {
 
       clearMarks();
       syncUI();
-      saveHistory();
     } catch (err) {
       console.error(err);
       alert('AI Segmentation Error: ' + err.message);
@@ -2068,7 +2005,6 @@ const App = () => {
       canvas.setActiveObject(textObj);
 
       syncUI();
-      saveHistory();
     } catch (err) {
       console.error(err);
       alert('Text Conversion Error: ' + err.message);
@@ -2092,7 +2028,6 @@ const App = () => {
     obj.applyFilters();
     fabricCanvas.current.renderAll();
     syncUI();
-    saveHistory();
   };
 
   const clearMarks = () => {
@@ -2116,7 +2051,6 @@ const App = () => {
 
     canvas.requestRenderAll();
     syncUI();
-    saveHistory();
   };
 
   const moveLayerByDrag = (sourceIdx, targetIdx) => {
@@ -2130,7 +2064,6 @@ const App = () => {
     canvas.moveObjectTo(sourceObj, newCanvasIndex);
     canvas.requestRenderAll();
     syncUI();
-    saveHistory();
   };
 
   const renameLayer = (id, newName) => {
@@ -2140,7 +2073,6 @@ const App = () => {
       target.name = newName;
       canvas.requestRenderAll();
       syncUI();
-      saveHistory();
     }
     setRenamingId(null);
   };
@@ -2171,10 +2103,6 @@ const App = () => {
     <header className="topbar">
       <div className="topbar-left">
         <h2 className="brand-title">OPEN LOVART</h2>
-        <div className="history-group">
-          <button className="icon-btn" onClick={undo} disabled={historyStep <= 0}><Undo2 size={16} /></button>
-          <button className="icon-btn" onClick={redo} disabled={historyStep >= history.length - 1}><Redo2 size={16} /></button>
-        </div>
       </div>
       <div className="topbar-actions">
         <button className={`action-tag ${showAiInput ? 'active' : ''}`} onClick={() => setShowAiInput(!showAiInput)}>
@@ -2972,7 +2900,7 @@ const App = () => {
             </div>
             <div className="modal-text">
               <h3>Remove Background?</h3>
-              <p>AI will analyze the image and remove the background. This action can be undone.</p>
+              <p>AI will analyze the image and remove the background.</p>
             </div>
             <div className="modal-actions">
               <button
@@ -3045,4 +2973,5 @@ const App = () => {
 };
 
 export default App;
+
 
