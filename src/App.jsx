@@ -1567,7 +1567,7 @@ const App = () => {
     if (!canvas) return;
     const rect = new fabric.Rect({
       width: 150, height: 150, rx: 0, ry: 0,
-      fill: 'rgba(59, 130, 246, 0.5)', stroke: '#3b82f6', strokeWidth: 2,
+      fill: 'rgba(59, 130, 246, 0.5)', stroke: 'transparent', strokeWidth: 0,
       strokeUniform: true,
     });
     canvas.add(rect);
@@ -1586,8 +1586,8 @@ const App = () => {
     const circle = new fabric.Circle({
       radius: 75,
       fill: 'rgba(59, 130, 246, 0.5)',
-      stroke: '#3b82f6',
-      strokeWidth: 2
+      stroke: 'transparent',
+      strokeWidth: 0
     });
     canvas.add(circle);
     const sceneCenter = getCreationCenterInScene();
