@@ -29,16 +29,6 @@ const SHORTCUT_DEFINITIONS = [
   { id: 'toggleShortcuts', label: 'Toggle This Help', key: '?', keyLabel: '?' },
 ];
 const ROUNDNESS_DRAG_SENSITIVITY = 0.7;
-const EXPORT_PRESETS = [
-  { label: '1024 × 800', width: 1024, height: 800 },
-  { label: '1080 × 1080', width: 1080, height: 1080 },
-  { label: '1366 × 768', width: 1366, height: 768 },
-  { label: '1440 × 1024', width: 1440, height: 1024 },
-  { label: '1920 × 1080', width: 1920, height: 1080 },
-  { label: '2048 × 2048', width: 2048, height: 2048 },
-  { label: '1080 × 1920', width: 1080, height: 1920 },
-  { label: '1200 × 1200', width: 1200, height: 1200 },
-];
 
 let hasConfiguredRectRoundControls = false;
 const buildRoundControl = () => {
@@ -1384,12 +1374,6 @@ const App = () => {
     setExportHeight(String(height));
     setExportAspectRatio(height > 0 ? width / height : 1);
     setShowExportOptionsModal(true);
-  };
-
-  const applyExportPreset = (width, height) => {
-    setExportWidth(String(width));
-    setExportHeight(String(height));
-    if (exportKeepAspect && height > 0) setExportAspectRatio(width / height);
   };
 
   const updateExportWidth = (nextWidth) => {
@@ -2820,7 +2804,7 @@ const App = () => {
           <div className="confirm-modal" style={{ maxWidth: 460, alignItems: 'stretch' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-text" style={{ textAlign: 'left' }}>
               <h3>Export Settings</h3>
-              <p>Choose image format and optional output size.</p>
+              <p>Set output format and size. Leave both fields empty to use the current canvas size.</p>
             </div>
             <div className="props-body">
               <div className="prop-input-group">
@@ -2872,20 +2856,8 @@ const App = () => {
                       <span>Keep Ratio</span>
                     </button>
                   </div>
-                  <div className="export-preset-group">
-                    {EXPORT_PRESETS.map((preset) => (
-                      <button
-                        type="button"
-                        className="export-preset-btn"
-                        key={`${preset.width}x${preset.height}`}
-                        onClick={() => applyExportPreset(preset.width, preset.height)}
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
-                  </div>
                   <span className="export-size-hint export-size-hint--muted">
-                    Leave blank to keep current selected area size.
+                    Keep Ratio scales the other side automatically when one value changes.
                   </span>
                 </div>
             </div>
