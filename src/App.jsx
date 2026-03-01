@@ -149,6 +149,7 @@ const App = () => {
   const [isDeletingAsset, setIsDeletingAsset] = useState(false);
   const [activePanelTab, setActivePanelTab] = useState('properties');
   const [activePropsTab, setActivePropsTab] = useState('image');
+  const [activeSettingsTab, setActiveSettingsTab] = useState('comfyui');
   const [showAlignmentHint, setShowAlignmentHint] = useState(false);
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
   const [showExportOptionsModal, setShowExportOptionsModal] = useState(false);
@@ -2110,7 +2111,7 @@ const App = () => {
         </button>
       </div>
         <div className="topbar-right">
-          <button className="action-tag" onClick={() => setShowSettingsModal(true)}>
+          <button className="action-tag" onClick={() => { setActiveSettingsTab('comfyui'); setShowSettingsModal(true); }}>
             <Settings size={14} /> Settings
           </button>
           <button className="action-tag" onClick={openExportOptions}>
@@ -2636,7 +2637,7 @@ const App = () => {
           <div className="confirm-modal" style={{ maxWidth: 560, alignItems: 'stretch' }} onClick={(e) => e.stopPropagation()}>
             <div className="modal-text" style={{ textAlign: 'left' }}>
               <h3>Server Settings</h3>
-              <p>Generate workflow, OCR model, and server URLs.</p>
+              <p>Manage ComfyUI and Ollama settings.</p>
             </div>
 
             {isSettingsLoading && (
@@ -2646,59 +2647,85 @@ const App = () => {
               </div>
             )}
 
+            <div className="props-subtabs" style={{ marginBottom: 18, gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+              <button
+                type="button"
+                className={`props-subtab ${activeSettingsTab === 'comfyui' ? 'active' : ''}`}
+                onClick={() => setActiveSettingsTab('comfyui')}
+                disabled={isSettingsSaving}
+              >
+                ComfyUI
+              </button>
+              <button
+                type="button"
+                className={`props-subtab ${activeSettingsTab === 'ollama' ? 'active' : ''}`}
+                onClick={() => setActiveSettingsTab('ollama')}
+                disabled={isSettingsSaving}
+              >
+                Ollama
+              </button>
+            </div>
+
             <div className="props-body">
-              <div className="prop-input-group">
-                <label>ComfyUI URL</label>
-                <input
-                  type="text"
-                  value={settingsDraft.comfyui}
-                  onChange={(e) => setSettingsDraft((prev) => ({ ...prev, comfyui: e.target.value }))}
-                  disabled={isSettingsSaving}
-                />
-              </div>
-              <div className="prop-input-group">
-                <label>Ollama URL</label>
-                <input
-                  type="text"
-                  value={settingsDraft.ollama}
-                  onChange={(e) => setSettingsDraft((prev) => ({ ...prev, ollama: e.target.value }))}
-                  disabled={isSettingsSaving}
-                />
-              </div>
-              <div className="prop-input-group">
-                <label>Generate Workflow</label>
-                <select
-                  value={settingsDraft.workflow}
-                  onChange={(e) => setSettingsDraft((prev) => ({ ...prev, workflow: e.target.value }))}
-                  disabled={isSettingsSaving}
-                >
-                  {settingsOptions.workflows.length === 0 && (
-                    <option value={settingsDraft.workflow || ''}>
-                      {isSettingsLoading ? 'Loading workflows...' : 'No workflows available'}
-                    </option>
-                  )}
-                  {settingsOptions.workflows.map((wf) => (
-                    <option key={wf} value={wf}>{wf}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="prop-input-group">
-                <label>OCR Model</label>
-                <select
-                  value={settingsDraft.ocrModel}
-                  onChange={(e) => setSettingsDraft((prev) => ({ ...prev, ocrModel: e.target.value }))}
-                  disabled={isSettingsSaving}
-                >
-                  {settingsOptions.ocrModels.length === 0 && (
-                    <option value={settingsDraft.ocrModel || ''}>
-                      {isSettingsLoading ? 'Loading OCR models...' : 'No OCR models available'}
-                    </option>
-                  )}
-                  {settingsOptions.ocrModels.map((model) => (
-                    <option key={model} value={model}>{model}</option>
-                  ))}
-                </select>
-              </div>
+              {activeSettingsTab === 'comfyui' ? (
+                <>
+                  <div className="prop-input-group">
+                    <label>ComfyUI URL</label>
+                    <input
+                      type="text"
+                      value={settingsDraft.comfyui}
+                      onChange={(e) => setSettingsDraft((prev) => ({ ...prev, comfyui: e.target.value }))}
+                      disabled={isSettingsSaving}
+                    />
+                  </div>
+                  <div className="prop-input-group">
+                    <label>Generate Workflow</label>
+                    <select
+                      value={settingsDraft.workflow}
+                      onChange={(e) => setSettingsDraft((prev) => ({ ...prev, workflow: e.target.value }))}
+                      disabled={isSettingsSaving}
+                    >
+                      {settingsOptions.workflows.length === 0 && (
+                        <option value={settingsDraft.workflow || ''}>
+                          {isSettingsLoading ? 'Loading workflows...' : 'No workflows available'}
+                        </option>
+                      )}
+                      {settingsOptions.workflows.map((wf) => (
+                        <option key={wf} value={wf}>{wf}</option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="prop-input-group">
+                    <label>Ollama URL</label>
+                    <input
+                      type="text"
+                      value={settingsDraft.ollama}
+                      onChange={(e) => setSettingsDraft((prev) => ({ ...prev, ollama: e.target.value }))}
+                      disabled={isSettingsSaving}
+                    />
+                  </div>
+                  <div className="prop-input-group">
+                    <label>OCR Model</label>
+                    <select
+                      value={settingsDraft.ocrModel}
+                      onChange={(e) => setSettingsDraft((prev) => ({ ...prev, ocrModel: e.target.value }))}
+                      disabled={isSettingsSaving}
+                    >
+                      {settingsOptions.ocrModels.length === 0 && (
+                        <option value={settingsDraft.ocrModel || ''}>
+                          {isSettingsLoading ? 'Loading OCR models...' : 'No OCR models available'}
+                        </option>
+                      )}
+                      {settingsOptions.ocrModels.map((model) => (
+                        <option key={model} value={model}>{model}</option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="modal-actions">
