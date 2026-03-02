@@ -197,6 +197,159 @@ def apply_prompt_to_workflow(workflow: dict, prompt: str) -> bool:
     return False
 
 
+def apply_t2i_prompt(workflow: dict, prompt: str) -> bool:
+    if not isinstance(workflow, dict) or not isinstance(prompt, str):
+        return False
+
+    nodes = [(node_id, node) for node_id, node in workflow.items() if isinstance(node, dict)]
+    if not nodes:
+        return False
+
+    # Preferred: dedicated prompt field in text-to-image workflows.
+    for node_id, node in nodes:
+        class_type = str(node.get("class_type", "")).lower()
+        title = get_node_title(node)
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+        if class_type == "primitivestringmultiline" and "value" in inputs and isinstance(inputs["value"], str):
+            if "prompt" in title:
+                inputs["value"] = prompt
+                return True
+
+    # Fallback: connected CLIP positive node -> source primitive string.
+    for node_id, node in nodes:
+        class_type = str(node.get("class_type", "")).lower()
+        title = get_node_title(node)
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+        if class_type != "cliptextencode" or "positive" not in title:
+            continue
+        text_value = inputs.get("text")
+        if isinstance(text_value, str):
+            inputs["text"] = prompt
+            return True
+        if isinstance(text_value, (list, tuple)) and len(text_value) > 0 and isinstance(text_value[0], str):
+            source_id = text_value[0]
+            source_node = workflow.get(source_id)
+            if isinstance(source_node, dict):
+                source_inputs = source_node.get("inputs")
+                if isinstance(source_inputs, dict) and isinstance(source_inputs.get("value"), str):
+                    source_inputs["value"] = prompt
+                    return True
+
+    # Last fallback: any primitive string field
+    for node_id, node in nodes:
+        class_type = str(node.get("class_type", "")).lower()
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+        if ("primitive" not in class_type and "string" not in class_type) or "value" not in inputs:
+            continue
+        if isinstance(inputs["value"], str):
+            inputs["value"] = prompt
+            return True
+
+    return False
+
+
+def apply_i2i_prompt(workflow: dict, prompt: str) -> bool:
+    if not isinstance(workflow, dict) or not isinstance(prompt, str):
+        return False
+
+    nodes = [(node_id, node) for node_id, node in workflow.items() if isinstance(node, dict)]
+    if not nodes:
+        return False
+
+    # Prefer explicit positive CLIP text field.
+    for node_id, node in nodes:
+        class_type = str(node.get("class_type", "")).lower()
+        title = get_node_title(node)
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+        if class_type != "cliptextencode" or "positive" not in title:
+            continue
+        if "text" in inputs and isinstance(inputs["text"], str):
+            inputs["text"] = prompt
+            return True
+        text_value = inputs.get("text")
+        if isinstance(text_value, (list, tuple)) and len(text_value) > 0 and isinstance(text_value[0], str):
+            source_id = text_value[0]
+            source_node = workflow.get(source_id)
+            if isinstance(source_node, dict):
+                source_inputs = source_node.get("inputs")
+                if isinstance(source_inputs, dict) and isinstance(source_inputs.get("value"), str):
+                    source_inputs["value"] = prompt
+                    return True
+
+    # Fallback: positive primitive string fields with prompt in title
+    for node_id, node in nodes:
+        class_type = str(node.get("class_type", "")).lower()
+        title = get_node_title(node)
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+        if "primitive" not in class_type or "value" not in inputs or not isinstance(inputs["value"], str):
+            continue
+        if "prompt" in title or "positive" in title:
+            inputs["value"] = prompt
+            return True
+
+    # Last fallback: any primitive string field.
+    for _, node in nodes:
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+        if "value" in inputs and isinstance(inputs["value"], str):
+            inputs["value"] = prompt
+            return True
+
+    return False
+
+
+def apply_mode_specific_inputs(
+    workflow: dict,
+    mode: str,
+    prompt: str,
+    source_image_name: Optional[str] = None,
+    source_image_names: Optional[List[str]] = None,
+) -> dict:
+    if not isinstance(workflow, dict) or not isinstance(prompt, str):
+        return {"prompt": False, "image_count": 0}
+
+    changed_targets = {"prompt": False, "image_count": 0}
+    selected_mode = str(mode or "t2i").lower()
+    is_i2i_mode = selected_mode in {"i2i", "i2i_single", "i2i_multi"}
+
+    source_images: List[str] = []
+    if source_image_name:
+        source_images.append(source_image_name)
+    if isinstance(source_image_names, list):
+        for filename in source_image_names:
+            if isinstance(filename, str):
+                filename = filename.strip()
+                if filename:
+                    source_images.append(filename)
+
+    if is_i2i_mode:
+        if source_images:
+            changed_targets["image_count"] = apply_images_to_workflow(workflow, source_images)
+        if apply_i2i_prompt(workflow, prompt):
+            changed_targets["prompt"] = True
+        return changed_targets
+
+    if selected_mode == "t2i":
+        if apply_t2i_prompt(workflow, prompt):
+            changed_targets["prompt"] = True
+        return changed_targets
+
+    if apply_prompt_to_workflow(workflow, prompt):
+        changed_targets["prompt"] = True
+    return changed_targets
+
+
 def randomize_seed_nodes(workflow: dict, seed: int):
     if not isinstance(workflow, dict):
         return
@@ -211,6 +364,49 @@ def randomize_seed_nodes(workflow: dict, seed: int):
                 inputs[key] = seed
 
 
+def collect_loadimage_image_fields(workflow: dict) -> list:
+    if not isinstance(workflow, dict):
+        return []
+
+    fields = []
+    for node_id, node in workflow.items():
+        if not isinstance(node, dict):
+            continue
+        if str(node.get("class_type", "")).lower() != "loadimage":
+            continue
+
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+
+        for key, value in inputs.items():
+            if not str(key).lower().startswith("image"):
+                continue
+            if isinstance(value, str):
+                fields.append((node_id, key, inputs))
+    return fields
+
+
+def apply_images_to_workflow(workflow: dict, image_filenames: List[str]) -> int:
+    if not isinstance(workflow, dict) or not isinstance(image_filenames, list):
+        return 0
+
+    fields = collect_loadimage_image_fields(workflow)
+    if not fields:
+        return 0
+
+    mapped_count = 0
+    for filename, (node_id, key, inputs) in zip(image_filenames, fields):
+        filename = str(filename).strip()
+        if not filename:
+            continue
+        inputs[key] = filename
+        mapped_count += 1
+        print(f"[generate-image] mapped source image '{filename}' -> node {node_id} field {key}")
+
+    return mapped_count
+
+
 def apply_image_to_workflow(workflow: dict, image_filename: str) -> bool:
     if not isinstance(workflow, dict) or not isinstance(image_filename, str):
         return False
@@ -219,11 +415,17 @@ def apply_image_to_workflow(workflow: dict, image_filename: str) -> bool:
     if not image_filename:
         return False
 
-    mapped_count = 0
-    for _, node in workflow.items():
+    return apply_images_to_workflow(workflow, [image_filename]) > 0
+
+
+def describe_loadimage_nodes(workflow: dict) -> list:
+    if not isinstance(workflow, dict):
+        return []
+
+    nodes = []
+    for node_id, node in workflow.items():
         if not isinstance(node, dict):
             continue
-
         if str(node.get("class_type", "")).lower() != "loadimage":
             continue
 
@@ -231,22 +433,18 @@ def apply_image_to_workflow(workflow: dict, image_filename: str) -> bool:
         if not isinstance(inputs, dict):
             continue
 
-        prioritized_keys = ("image", "image1", "image2", "control", "base")
-        mapped_this_node = False
-        for key in prioritized_keys:
-            if key in inputs and isinstance(inputs[key], str):
-                inputs[key] = image_filename
-                mapped_this_node = True
-
+        image_fields = []
         for key, value in inputs.items():
             if str(key).lower().startswith("image") and isinstance(value, str):
-                inputs[key] = image_filename
-                mapped_this_node = True
+                image_fields.append({key: value})
 
-        if mapped_this_node:
-            mapped_count += 1
+        nodes.append({
+            "node_id": str(node_id),
+            "title": ((node.get("_meta") or {}).get("title") or "").strip(),
+            "image_fields": image_fields,
+        })
 
-    return mapped_count > 0
+    return nodes
 
 
 def _extract_comfy_upload_name(payload):
@@ -304,6 +502,7 @@ async def upload_image_to_comfyui(source_image: UploadFile, subfolder: str = "")
     if not uploaded_filename:
         raise HTTPException(status_code=502, detail="ComfyUI image upload response does not include filename.")
 
+    print(f"[generate-image] ComfyUI upload response: {upload_json} -> source image '{uploaded_filename}'")
     return uploaded_filename
 
 def read_persisted_config() -> dict:
@@ -335,13 +534,21 @@ workflow_options = list_available_workflows()
 workflow_map_from_config = persisted_config.get("workflow_map")
 if not isinstance(workflow_map_from_config, dict):
     workflow_map_from_config = {}
+legacy_i2i_workflow = normalize_workflow_name(
+    os.path.basename(str(workflow_map_from_config.get("i2i", "")).strip()),
+    workflow_options,
+)
 
 WORKFLOW_MAP = {
     "t2i": normalize_workflow_name(
         workflow_map_from_config.get("t2i", persisted_config.get("workflow", DEFAULT_WORKFLOW)),
         workflow_options,
     ),
-    "i2i": normalize_workflow_name(workflow_map_from_config.get("i2i", ""), workflow_options),
+    "i2i_single": normalize_workflow_name(
+        workflow_map_from_config.get("i2i_single", legacy_i2i_workflow),
+        workflow_options,
+    ),
+    "i2i_multi": normalize_workflow_name(workflow_map_from_config.get("i2i_multi", ""), workflow_options),
     "upscale": normalize_workflow_name(workflow_map_from_config.get("upscale", ""), workflow_options),
 }
 
@@ -495,17 +702,22 @@ async def update_config(data: dict):
     if not isinstance(raw_workflow_map, dict):
         raw_workflow_map = {}
 
+    legacy_i2i = os.path.basename(str(raw_workflow_map.get("i2i", "").strip()))
+
     workflow = {
         "t2i": os.path.basename(str(raw_workflow_map.get("t2i", legacy_workflow)).strip()),
-        "i2i": os.path.basename(str(raw_workflow_map.get("i2i", "")).strip()),
+        "i2i_single": os.path.basename(str(raw_workflow_map.get("i2i_single", legacy_i2i)).strip()),
+        "i2i_multi": os.path.basename(str(raw_workflow_map.get("i2i_multi", "")).strip()),
         "upscale": os.path.basename(str(raw_workflow_map.get("upscale", "")).strip()),
     }
     ocr_model = str(data.get("ocr_model", data.get("ocrModel", OCR_MODEL))).strip()
 
     if workflows and workflow["t2i"] and workflow["t2i"] not in workflows:
         raise HTTPException(status_code=400, detail="Invalid workflow selection for T2I.")
-    if workflows and workflow["i2i"] and workflow["i2i"] not in workflows:
-        raise HTTPException(status_code=400, detail="Invalid workflow selection for I2I.")
+    if workflows and workflow["i2i_single"] and workflow["i2i_single"] not in workflows:
+        raise HTTPException(status_code=400, detail="Invalid workflow selection for I2I (Single).")
+    if workflows and workflow["i2i_multi"] and workflow["i2i_multi"] not in workflows:
+        raise HTTPException(status_code=400, detail="Invalid workflow selection for I2I (Multi).")
     if workflows and workflow["upscale"] and workflow["upscale"] not in workflows:
         raise HTTPException(status_code=400, detail="Invalid workflow selection for Upscale.")
     if ocr_model not in DEFAULT_OCR_MODELS:
@@ -517,11 +729,12 @@ async def update_config(data: dict):
         raise HTTPException(status_code=400, detail="T2I workflow is required.")
 
     if not workflows:
-        WORKFLOW_MAP = {"t2i": "", "i2i": "", "upscale": ""}
+        WORKFLOW_MAP = {"t2i": "", "i2i_single": "", "i2i_multi": "", "upscale": ""}
     else:
         WORKFLOW_MAP = {
             "t2i": workflow["t2i"] if workflow["t2i"] else WORKFLOW_MAP["t2i"],
-            "i2i": workflow["i2i"],
+            "i2i_single": workflow["i2i_single"],
+            "i2i_multi": workflow["i2i_multi"],
             "upscale": workflow["upscale"],
         }
     GENERATE_WORKFLOW = WORKFLOW_MAP["t2i"]
@@ -836,6 +1049,7 @@ async def generate_image(
     workflow: str = Form(default=""),
     mode: str = Form(default="t2i"),
     source_image: UploadFile = File(default=None),
+    source_images: List[UploadFile] = File(default=[]),
 ):
     """
     Generate Image using ComfyUI and Qwen workflow
@@ -843,37 +1057,88 @@ async def generate_image(
     try:
         requested_workflow = workflow.strip() if workflow else ""
         selected_mode = mode.strip().lower() if mode else "t2i"
+        if selected_mode == "i2i":
+            selected_mode = "i2i_single"
+        is_i2i_mode = selected_mode in {"i2i_single", "i2i_multi"}
+
         if not requested_workflow:
             requested_workflow = (WORKFLOW_MAP.get(selected_mode) if WORKFLOW_MAP else "")
+        if not requested_workflow and is_i2i_mode and selected_mode in WORKFLOW_MAP:
+            raise HTTPException(status_code=400, detail=f"No workflow mapped for {selected_mode}. Select one in Settings > ComfyUI.")
         if not requested_workflow:
             requested_workflow = GENERATE_WORKFLOW
 
         workflow_path = resolve_workflow_path(requested_workflow)
         if not workflow_path:
             raise HTTPException(status_code=500, detail="Generate workflow is not configured.")
-            
+
         with open(workflow_path, "r", encoding="utf-8") as f:
-            workflow = json.load(f)
-        
-        if not apply_prompt_to_workflow(workflow, prompt):
+            workflow_data = json.load(f)
+
+        source_image_names = []
+        if is_i2i_mode:
+            if selected_mode == "i2i_multi":
+                multi_source_images: List[UploadFile] = []
+                if source_images:
+                    multi_source_images = source_images
+                elif source_image:
+                    multi_source_images = [source_image]
+                if len(multi_source_images) < 2:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="I2I (Multi) generation requires at least 2 image sources. Select two or more image layers.",
+                    )
+            else:
+                multi_source_images = [source_image] if source_image else []
+                if not multi_source_images:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="I2I generation requires an image source. Select one image layer on canvas.",
+                    )
+
+            for source in multi_source_images:
+                if source is None:
+                    continue
+                source_image_names.append(await upload_image_to_comfyui(source))
+
+            if not source_image_names:
+                raise HTTPException(
+                    status_code=400,
+                    detail="I2I image upload failed.",
+                )
+
+        changed_targets = apply_mode_specific_inputs(
+            workflow_data,
+            selected_mode,
+            prompt,
+            source_image_names=source_image_names,
+        )
+        if not changed_targets["prompt"] and not apply_prompt_to_workflow(workflow_data, prompt):
             print(f"[generate-image] Warning: could not find a recognized prompt target in workflow '{requested_workflow}'.")
 
-        if selected_mode == "i2i":
-            if not source_image:
+        if is_i2i_mode:
+            if selected_mode == "i2i_multi" and len(source_image_names) < 2:
                 raise HTTPException(
                     status_code=400,
-                    detail="I2I generation requires an image source. Select one image layer on canvas.",
+                    detail="I2I (Multi) generation requires at least 2 image sources. Select two or more image layers.",
                 )
-            source_image_name = await upload_image_to_comfyui(source_image)
-            if not apply_image_to_workflow(workflow, source_image_name):
+            if not changed_targets["image_count"]:
+                loadimage_nodes = describe_loadimage_nodes(workflow_data)
                 raise HTTPException(
                     status_code=400,
-                    detail="Could not map source image into workflow. Configure a workflow with a LoadImage node.",
+                    detail=f"Could not map source image(s) into workflow. Configure a workflow with a LoadImage node. Current nodes: {loadimage_nodes}",
                 )
-             
-        randomize_seed_nodes(workflow, random.randint(1, 1125899906842624))
-             
-        img_content = await call_comfyui_workflow(workflow)
+            if changed_targets["image_count"] < len(source_image_names):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Could not map all source images into workflow. Configure a workflow with enough image input fields.",
+                )
+            loadimage_nodes = describe_loadimage_nodes(workflow_data)
+            print(f"[generate-image] I2I source mapped: {source_image_names}, loadimage_nodes={loadimage_nodes}")
+
+        randomize_seed_nodes(workflow_data, random.randint(1, 1125899906842624))
+
+        img_content = await call_comfyui_workflow(workflow_data)
         return StreamingResponse(io.BytesIO(img_content), media_type="image/png")
     except Exception as e:
         import traceback

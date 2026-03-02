@@ -173,7 +173,8 @@ const App = () => {
     workflow: '',
     workflowMap: {
       t2i: '',
-      i2i: '',
+      i2i_single: '',
+      i2i_multi: '',
       upscale: '',
     },
     ocrModel: '',
@@ -181,17 +182,19 @@ const App = () => {
 
   const aiModeConfig = [
     { key: 't2i', label: 'T2I Generate' },
-    { key: 'i2i', label: 'I2I Generate' },
+    { key: 'i2i_single', label: 'I2I (Single)' },
+    { key: 'i2i_multi', label: 'I2I (Multi)' },
   ];
 
   const normalizeWorkflowMapFromConfig = (config = {}) => {
-    const rawMap = config.workflow_map;
-    return {
-      t2i: String(rawMap?.t2i || config.workflow || '').trim(),
-      i2i: String(rawMap?.i2i || '').trim(),
-      upscale: String(rawMap?.upscale || '').trim(),
-    };
+const rawMap = config.workflow_map;
+  return {
+    t2i: String(rawMap?.t2i || config.workflow || '').trim(),
+    i2i_single: String(rawMap?.i2i_single || rawMap?.i2i || '').trim(),
+    i2i_multi: String(rawMap?.i2i_multi || '').trim(),
+    upscale: String(rawMap?.upscale || '').trim(),
   };
+};
 
   // --- Refs ---
   const canvasRef = useRef(null);
@@ -1782,63 +1785,113 @@ const App = () => {
     }
   };
 
-  const validateI2ISourceSelection = () => {
-    const canvas = fabricCanvas.current;
-    const active = canvas?.getActiveObject?.();
-    if (!canvas || !active || (active.type !== 'FabricImage' && active.type !== 'image')) {
-      setAiValidationTitle('AI Generation Error');
-      setAiValidationMessage('I2I generation requires an image layer selected.');
-      setShowAiValidationModal(true);
+  const showAiValidationModalMessage = (title, message) => {
+    setAiValidationTitle(title || 'AI Generation Error');
+    setAiValidationMessage(message || 'An error occurred while generating image.');
+    setShowAiValidationModal(true);
+  };
+
+  const validateI2ISourceSelection = (mode = 'i2i_single') => {
+    const selectedMode = mode === 'i2i' ? 'i2i_single' : mode;
+    const sourceObjects = getI2ISourceObjects(selectedMode);
+    if (sourceObjects.length === 0) {
+      showAiValidationModalMessage('AI Generation Error', getI2IValidationErrorMessage(selectedMode));
       return false;
     }
     return true;
   };
 
+  const getI2ISourceObjects = (mode = 'i2i_single') => {
+    const canvas = fabricCanvas.current;
+    if (!canvas?.getActiveObjects) return [];
+    const imageObjects = canvas.getActiveObjects().filter((obj) => obj.type === 'FabricImage' || obj.type === 'image');
+    const selectedMode = mode === 'i2i' ? 'i2i_single' : mode;
+
+    if (selectedMode === 'i2i_multi' && imageObjects.length < 2) return [];
+    if (selectedMode !== 'i2i_multi' && imageObjects.length < 1) return [];
+    return imageObjects;
+  };
+
+  const getI2IValidationErrorMessage = (mode = 'i2i_single') => {
+    const selectedMode = mode === 'i2i' ? 'i2i_single' : mode;
+    return selectedMode === 'i2i_multi'
+      ? 'I2I (Multi) generation requires at least 2 image layers selected.'
+      : 'I2I generation requires an image layer selected.';
+  };
+
+  const collectI2ISourceImageBlobs = async (mode = 'i2i_single') => {
+    const selectedMode = mode === 'i2i' ? 'i2i_single' : mode;
+    const sourceObjects = getI2ISourceObjects(selectedMode);
+    if (!sourceObjects.length) {
+      throw new Error(getI2IValidationErrorMessage(selectedMode));
+    }
+
+    const blobs = [];
+    for (const obj of sourceObjects) {
+      const dataURL = obj.toDataURL({ format: 'png' });
+      const blob = await (await fetch(dataURL)).blob();
+      blobs.push(blob);
+    }
+    return blobs;
+  };
+
   const generateAiImage = async (mode = 't2i') => {
-    if (mode === 'i2i' && !validateI2ISourceSelection()) return;
     if (!aiPrompt.trim()) return;
+    const selectedMode = mode === 'i2i' ? 'i2i_single' : mode;
+    const showAiError = (title, message) => {
+      setAiValidationTitle(title || 'AI Generation Error');
+      setAiValidationMessage(message || 'An error occurred while generating image.');
+      setShowAiValidationModal(true);
+    };
+
     setIsAiProcessing(true);
     try {
-      const showAiError = (title, message) => {
-        setAiValidationTitle(title || 'AI Generation Error');
-        setAiValidationMessage(message || 'An error occurred while generating image.');
-        setShowAiValidationModal(true);
-      };
-
       const formData = new FormData();
       formData.append('prompt', aiPrompt);
 
-      if (mode === 'i2i') {
+    if (selectedMode.startsWith('i2i')) {
+      const blobs = await collectI2ISourceImageBlobs(selectedMode);
+      if (!blobs.length) {
+        showAiError('AI Generation Error', getI2IValidationErrorMessage(selectedMode));
+        return;
+      }
+
+      if (selectedMode === 'i2i_multi') {
+        blobs.forEach((blob, index) => formData.append('source_images', blob, `source_${index + 1}.png`));
+      } else {
+        const [firstBlob] = blobs;
+        if (!firstBlob) {
+          throw new Error(getI2IValidationErrorMessage(selectedMode));
+        }
+        formData.append('source_image', firstBlob, 'source.png');
+      }
+    }
+
+      if (selectedMode.startsWith('i2i')) {
         const canvas = fabricCanvas.current;
         if (!canvas) {
           showAiError('AI Generation Error', 'Canvas is not available.');
           return;
         }
-
-        const active = canvas.getActiveObject();
-        if (!active || (active.type !== 'FabricImage' && active.type !== 'image')) {
-          showAiError('AI Generation Error', 'I2I generation requires an image layer selected.');
-          return;
-        }
-
-        const sourceImageDataURL = active.toDataURL({ format: 'png' });
-        const sourceImageBlob = await (await fetch(sourceImageDataURL)).blob();
-        formData.append('source_image', sourceImageBlob, 'source.png');
       }
 
-      const selectedWorkflow = settingsDraft.workflowMap?.[mode] || (mode === 't2i' ? settingsDraft.workflow : '');
-      if (mode !== 't2i' && !selectedWorkflow) {
-        throw new Error(`No workflow mapped for ${mode.toUpperCase()}. Select one in Settings > ComfyUI.`);
+      const selectedWorkflow = settingsDraft.workflowMap?.[selectedMode] || (selectedMode === 't2i' ? settingsDraft.workflow : '');
+      if (selectedMode !== 't2i' && !selectedWorkflow) {
+        const displayMode = selectedMode === 'i2i_single' ? 'I2I (Single)' : selectedMode === 'i2i_multi' ? 'I2I (Multi)' : selectedMode.toUpperCase();
+        throw new Error(`No workflow mapped for ${displayMode}. Select one in Settings > ComfyUI.`);
       }
       if (selectedWorkflow) formData.append('workflow', selectedWorkflow);
-      formData.append('mode', mode);
+      formData.append('mode', selectedMode);
 
       const response = await fetch(`${API_BASE_URL}/generate-image`, {
         method: 'POST',
         body: formData,
       });
 
-      if (!response.ok) throw new Error('Generation failed');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Generation failed' }));
+        throw new Error(errorData?.detail || errorData?.message || 'Generation failed');
+      }
 
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
@@ -2193,9 +2246,9 @@ const App = () => {
                     setShowAiInput(false);
                     return;
                   }
-                  if (mode.key === 'i2i') {
-                    if (!validateI2ISourceSelection()) return;
-                  }
+                  if (mode.key.startsWith('i2i')) {
+                          if (!validateI2ISourceSelection(mode.key)) return;
+                        }
                   setActiveAiMode(mode.key);
                   setShowAiInput(true);
                 }}
@@ -2329,13 +2382,13 @@ const App = () => {
               onChange={(e) => setAiPrompt(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key !== 'Enter') return;
-                if (activeAiMode === 'i2i' && !validateI2ISourceSelection()) return;
+                if (activeAiMode.startsWith('i2i') && !validateI2ISourceSelection(activeAiMode)) return;
                 generateAiImage(activeAiMode);
               }}
             />
             <button className="ai-gen-btn" onClick={() => {
-              if (activeAiMode === 'i2i' && !validateI2ISourceSelection()) return;
-              generateAiImage(activeAiMode);
+                if (activeAiMode.startsWith('i2i') && !validateI2ISourceSelection(activeAiMode)) return;
+                generateAiImage(activeAiMode);
             }} disabled={isAiProcessing}>
               {isAiProcessing ? 'Generating...' : 'Create'}
             </button>
@@ -2802,17 +2855,17 @@ const App = () => {
                       ))}
                     </select>
                   </div>
-                  <div className="prop-input-group">
-                    <label>I2I Workflow</label>
-                    <select
-                      value={settingsDraft.workflowMap?.i2i || ''}
-                      onChange={(e) =>
-                        setSettingsDraft((prev) => ({
-                          ...prev,
-                          workflowMap: { ...prev.workflowMap, i2i: e.target.value },
-                        }))
-                      }
-                      disabled={isSettingsSaving}
+                    <div className="prop-input-group">
+                     <label>I2I (Single) Workflow</label>
+                     <select
+                       value={settingsDraft.workflowMap?.i2i_single || ''}
+                       onChange={(e) =>
+                         setSettingsDraft((prev) => ({
+                           ...prev,
+                           workflowMap: { ...prev.workflowMap, i2i_single: e.target.value },
+                         }))
+                       }
+                       disabled={isSettingsSaving}
                     >
                       <option value="">{isSettingsLoading ? 'Loading workflows...' : 'No workflows selected'}</option>
                       {settingsOptions.workflows.map((wf) => (
@@ -2820,8 +2873,26 @@ const App = () => {
                       ))}
                     </select>
                   </div>
-                  <div className="prop-input-group">
-                    <label>Upscale Workflow</label>
+                    <div className="prop-input-group">
+                      <label>I2I (Multi) Workflow</label>
+                      <select
+                        value={settingsDraft.workflowMap?.i2i_multi || ''}
+                        onChange={(e) =>
+                          setSettingsDraft((prev) => ({
+                            ...prev,
+                            workflowMap: { ...prev.workflowMap, i2i_multi: e.target.value },
+                          }))
+                        }
+                        disabled={isSettingsSaving}
+                      >
+                        <option value="">{isSettingsLoading ? 'Loading workflows...' : 'No workflows selected'}</option>
+                        {settingsOptions.workflows.map((wf) => (
+                          <option key={wf} value={wf}>{wf}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="prop-input-group">
+                      <label>Upscale Workflow</label>
                     <select
                       value={settingsDraft.workflowMap?.upscale || ''}
                       onChange={(e) =>

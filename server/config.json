@@ -4,8 +4,8 @@
   "workflow": "image_flux2_klein_text_to_image_4b_distilled.json",
   "workflow_map": {
     "t2i": "image_flux2_klein_text_to_image_4b_distilled.json",
-    "i2i": "image_flux2_klein_image_edit_4b_distilled.json",
-    "upscale": ""
+    "i2i": "",
+    "upscale": "utility_interpolation_image_upscale.json"
   },
   "ocr_model": "deepseek-ocr:3b"
 }
