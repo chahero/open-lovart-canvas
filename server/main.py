@@ -803,6 +803,30 @@ async def upload_asset(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save asset: {str(e)}")
 
+
+@app.patch("/assets/{asset_id}")
+@app.put("/assets/{asset_id}")
+async def rename_asset(asset_id: str, data: dict):
+    items = read_asset_library_index()
+    target = next((item for item in items if item.get("id") == asset_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Asset not found.")
+
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="Invalid request payload.")
+
+    raw_name = data.get("name")
+    if raw_name is None:
+        raise HTTPException(status_code=400, detail="name is required.")
+
+    next_name = str(raw_name).strip()
+    if not next_name:
+        next_name = "Untitled"
+
+    target["name"] = next_name
+    write_asset_library_index(items)
+    return {"item": target}
+
 @app.delete("/assets/{asset_id}")
 async def delete_asset(asset_id: str):
     items = read_asset_library_index()

@@ -149,6 +149,9 @@ const App = () => {
   const [assetLibrary, setAssetLibrary] = useState([]);
   const [isLibraryLoading, setIsLibraryLoading] = useState(false);
   const [isLibrarySaving, setIsLibrarySaving] = useState(false);
+  const [editingAssetId, setEditingAssetId] = useState(null);
+  const [editingAssetName, setEditingAssetName] = useState('');
+  const [isRenamingAsset, setIsRenamingAsset] = useState(false);
   const [pendingDeleteAsset, setPendingDeleteAsset] = useState(null);
   const [isDeletingAsset, setIsDeletingAsset] = useState(false);
   const [activePanelTab, setActivePanelTab] = useState('properties');
@@ -653,6 +656,47 @@ const rawMap = config.workflow_map;
       alert('Failed to delete library asset: ' + err.message);
     } finally {
       setIsDeletingAsset(false);
+    }
+  };
+
+  const getAssetDisplayName = (assetName) => {
+    const raw = String(assetName || '').trim();
+    if (!raw) return 'Untitled';
+    return raw.replace(/\.[^./\\]+$/, '');
+  };
+
+  const renameAssetInLibrary = async (assetId, newName) => {
+    if (!assetId) return;
+    const normalizedName = getAssetDisplayName(newName);
+    if (!normalizedName) {
+      setEditingAssetId(null);
+      setEditingAssetName('');
+      return;
+    }
+
+    try {
+      setIsRenamingAsset(true);
+      const response = await fetch(`${API_BASE_URL}/assets/${assetId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: normalizedName }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Failed to rename asset');
+      }
+      const data = await response.json();
+      const updated = data.item;
+      if (updated) {
+        setAssetLibrary((prev) => prev.map((item) => (item.id === assetId ? updated : item)));
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to rename library asset: ' + err.message);
+    } finally {
+      setEditingAssetId(null);
+      setEditingAssetName('');
+      setIsRenamingAsset(false);
     }
   };
 
@@ -2729,14 +2773,25 @@ const rawMap = config.workflow_map;
                     key={asset.id}
                     className="library-card"
                   >
-                    <button
-                      className="library-insert-btn"
-                      onClick={() => addImageFromAsset(asset)}
-                      title={asset.name || 'Asset'}
-                    >
-                      <img src={toAbsoluteAssetUrl(asset.url)} alt={asset.name || 'Asset'} loading="lazy" />
-                      <span className="library-item-label">{asset.name || 'Untitled'}</span>
-                    </button>
+                      <button
+                        className="library-insert-btn"
+                        onClick={() => addImageFromAsset(asset)}
+                        title={getAssetDisplayName(asset.name)}
+                      >
+                        <img src={toAbsoluteAssetUrl(asset.url)} alt={getAssetDisplayName(asset.name)} loading="lazy" />
+                        <span className="library-item-label">{getAssetDisplayName(asset.name)}</span>
+                      </button>
+                      <button
+                        className="library-rename-btn"
+                        title="Rename asset"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingAssetId(asset.id);
+                          setEditingAssetName(getAssetDisplayName(asset.name));
+                        }}
+                      >
+                        <Edit3 size={12} />
+                      </button>
                     <button
                       className="library-delete-btn"
                       title="Delete asset"
@@ -3088,10 +3143,10 @@ const rawMap = config.workflow_map;
             </div>
             <div className="modal-text">
               <h3>Delete Library Asset?</h3>
-              <p>
-                This will remove <strong className="asset-name-break">{pendingDeleteAsset.name || 'this asset'}</strong> from your library.
-              </p>
-            </div>
+                <p>
+                This will remove <strong className="asset-name-break">{getAssetDisplayName(pendingDeleteAsset.name) || 'this asset'}</strong> from your library.
+                </p>
+              </div>
             <div className="modal-actions">
               <button
                 className="modal-btn cancel"
@@ -3106,6 +3161,60 @@ const rawMap = config.workflow_map;
                 disabled={isDeletingAsset}
               >
                 {isDeletingAsset ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+              </div>
+            </div>
+      )}
+
+      {editingAssetId && (
+        <div className="modal-overlay" onClick={() => !isRenamingAsset && setEditingAssetId(null)}>
+          <div
+            className="confirm-modal"
+            style={{ maxWidth: 420, alignItems: 'stretch' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-text" style={{ textAlign: 'left' }}>
+              <h3>Rename Asset</h3>
+              <p>Enter a new display name for the selected asset.</p>
+            </div>
+            <div className="prop-input-group">
+              <label>Asset Name</label>
+              <input
+                autoFocus
+                className="library-rename-input"
+                value={editingAssetName}
+                onChange={(e) => setEditingAssetName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    renameAssetInLibrary(editingAssetId, editingAssetName);
+                  }
+                  if (e.key === 'Escape') {
+                    setEditingAssetId(null);
+                    setEditingAssetName('');
+                  }
+                }}
+                disabled={isRenamingAsset}
+                maxLength={120}
+              />
+            </div>
+            <div className="modal-actions">
+              <button
+                className="modal-btn cancel"
+                onClick={() => {
+                  setEditingAssetId(null);
+                  setEditingAssetName('');
+                }}
+                disabled={isRenamingAsset}
+              >
+                Cancel
+              </button>
+              <button
+                className="modal-btn confirm"
+                onClick={() => renameAssetInLibrary(editingAssetId, editingAssetName)}
+                disabled={isRenamingAsset || !editingAssetName.trim()}
+              >
+                {isRenamingAsset ? 'Saving...' : 'Save'}
               </button>
             </div>
           </div>

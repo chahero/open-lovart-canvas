@@ -1191,6 +1191,39 @@ input[type="color"]::-webkit-color-swatch {
   border-color: rgba(239, 68, 68, 0.6);
 }
 
+.library-rename-btn {
+  position: absolute;
+  top: 6px;
+  right: 34px;
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(255, 255, 255, 0.9);
+  color: #64748b;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.library-rename-btn:hover {
+  color: #0f172a;
+  border-color: rgba(59, 130, 246, 0.6);
+}
+
+.library-rename-input {
+  margin: 0;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: #ffffff;
+  color: #0f172a;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 14px;
+}
+
 /* Global Floating */
 .floating-context {
   position: fixed;
