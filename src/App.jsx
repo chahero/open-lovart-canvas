@@ -1651,6 +1651,18 @@ const rawMap = config.workflow_map;
     closeContextMenu();
   };
 
+  const handleContextRenameLayer = () => {
+    const target = contextMenu?.target;
+    if (!target || target.id === 'world-bounds') {
+      closeContextMenu();
+      return;
+    }
+
+    applyContextTargetAsActive(target);
+    setRenamingId(target.id);
+    closeContextMenu();
+  };
+
   const handleContextRemoveLayer = () => {
     const canvas = fabricCanvas.current;
     const target = contextMenu?.target;
@@ -2726,13 +2738,18 @@ const rawMap = config.workflow_map;
 
   const renameLayer = (id, newName) => {
     const canvas = fabricCanvas.current;
-    const target = canvas.getObjects().find(o => o.id === id);
-    if (target) {
-      target.name = newName;
-      canvas.requestRenderAll();
-      syncUI();
-    }
+    const target = canvas.getObjects().find((o) => o.id === id);
+    const nextName = (newName || '').trim();
     setRenamingId(null);
+
+    if (!target || !nextName) return;
+
+    target.name = nextName;
+    if (selectedObject?.id === id) {
+      setSelectedObject((prev) => (prev ? { ...prev, name: nextName } : prev));
+    }
+    canvas.requestRenderAll();
+    syncUI();
   };
 
   const selectedIsText = selectedObject?.type === 'i-text' || selectedObject?.type === 'text';
@@ -3322,13 +3339,29 @@ const rawMap = config.workflow_map;
                     <button onClick={(e) => { e.stopPropagation(); reorderLayer(l.object, 'down'); }}><ChevronDown size={12} /></button>
                   </div>
                   {renamingId === l.id ? (
-                    <input autoFocus onBlur={(e) => renameLayer(l.id, e.target.value)} onKeyDown={(e) => e.key === 'Enter' && renameLayer(l.id, e.target.value)} defaultValue={l.name} className="rename-input" />
+                    <input
+                      autoFocus
+                      onBlur={(e) => renameLayer(l.id, e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          renameLayer(l.id, e.target.value);
+                          return;
+                        }
+                        if (e.key === 'Escape') {
+                          e.preventDefault();
+                          setRenamingId(null);
+                        }
+                      }}
+                      defaultValue={l.name}
+                      className="rename-input"
+                    />
                   ) : (
                     <span onDoubleClick={() => setRenamingId(l.id)} className="l-name">{l.name}</span>
                   )}
                   <div className="l-actions">
-                    <button onClick={(e) => { e.stopPropagation(); l.object.visible = !l.object.visible; fabricCanvas.current.requestRenderAll(); syncUI(); }}>{l.visible ? <Eye size={14} /> : <EyeOff size={14} />}</button>
-                    <button onClick={(e) => { e.stopPropagation(); fabricCanvas.current.remove(l.object); }}><Trash2 size={14} /></button>
+                    <button title="Rename layer" onClick={(e) => { e.stopPropagation(); setRenamingId(l.id); }}><Edit3 size={14} /></button>
+                    <button title={l.visible ? 'Hide layer' : 'Show layer'} onClick={(e) => { e.stopPropagation(); l.object.visible = !l.object.visible; fabricCanvas.current.requestRenderAll(); syncUI(); }}>{l.visible ? <Eye size={14} /> : <EyeOff size={14} />}</button>
+                    <button title="Remove layer" onClick={(e) => { e.stopPropagation(); fabricCanvas.current.remove(l.object); }}><Trash2 size={14} /></button>
                   </div>
                 </div>
               ))}
@@ -3735,6 +3768,7 @@ const rawMap = config.workflow_map;
               <div className="context-item" onClick={handleContextMoveBackward}><ChevronDown size={14} /> Move Backward</div>
               <div className={`context-item ${canGroup ? '' : 'disabled'}`} onClick={canGroup ? handleContextGroup : undefined} style={canGroup ? {} : { opacity: 0.45, pointerEvents: 'none' }}><Group size={14} /> Group</div>
               <div className={`context-item ${canUngroup ? '' : 'disabled'}`} onClick={canUngroup ? handleContextUngroup : undefined} style={canUngroup ? {} : { opacity: 0.45, pointerEvents: 'none' }}><Ungroup size={14} /> Ungroup</div>
+              <div className="context-item" onClick={handleContextRenameLayer}><Edit3 size={14} /> Rename</div>
               <div className={`context-item ${targetIsImage ? '' : 'disabled'}`} onClick={targetIsImage ? handleContextRemoveBg : undefined} style={targetIsImage ? {} : { opacity: 0.45, pointerEvents: 'none' }}><Sparkles size={14} /> Remove Background</div>
               <div className="context-item red" onClick={handleContextRemoveLayer}><Trash2 size={14} /> Remove Layer</div>
             </div>
