@@ -161,6 +161,7 @@ const App = () => {
   const [showShortcutsModal, setShowShortcutsModal] = useState(false);
   const [showExportOptionsModal, setShowExportOptionsModal] = useState(false);
   const [showExportNoSelectionModal, setShowExportNoSelectionModal] = useState(false);
+  const [showProjectMenu, setShowProjectMenu] = useState(false);
   const [exportFormat, setExportFormat] = useState('png');
   const [exportWidth, setExportWidth] = useState('');
   const [exportHeight, setExportHeight] = useState('');
@@ -220,6 +221,7 @@ const rawMap = config.workflow_map;
   const suspendMaskOverlayUntilRef = useRef(0);
   const rightClickActiveSelectionIdsRef = useRef([]);
   const rightClickSelectionEpochRef = useRef(0);
+  const topbarMenuRef = useRef(null);
 
   // --- Sync Refs ---
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
@@ -272,6 +274,20 @@ const rawMap = config.workflow_map;
       setActivePropsTab('image');
     }
   }, [selectedObject?.type]);
+
+  useEffect(() => {
+    if (!showProjectMenu) return;
+
+    const onPointerDown = (event) => {
+      if (!topbarMenuRef.current) return;
+      if (!topbarMenuRef.current.contains(event.target)) {
+        setShowProjectMenu(false);
+      }
+    };
+
+    window.addEventListener('pointerdown', onPointerDown);
+    return () => window.removeEventListener('pointerdown', onPointerDown);
+  }, [showProjectMenu]);
 
   const syncUI = useCallback(() => {
     const canvas = fabricCanvas.current;
@@ -1651,6 +1667,16 @@ const rawMap = config.workflow_map;
     closeContextMenu();
   };
 
+  const handleProjectSave = () => {
+    setShowProjectMenu(false);
+    alert('Project save is not implemented yet.');
+  };
+
+  const handleProjectLoad = () => {
+    setShowProjectMenu(false);
+    alert('Project load is not implemented yet.');
+  };
+
   const handleContextRenameLayer = () => {
     const target = contextMenu?.target;
     if (!target || target.id === 'world-bounds') {
@@ -2801,6 +2827,20 @@ const rawMap = config.workflow_map;
             ))}
         </div>
         <div className="topbar-right">
+          <div className="topbar-menu-wrap" ref={topbarMenuRef}>
+            <button
+              className="action-tag"
+              onClick={() => setShowProjectMenu((prev) => !prev)}
+            >
+              <MoreHorizontal size={14} /> Project
+            </button>
+            {showProjectMenu && (
+              <div className="topbar-menu">
+                <button type="button" className="topbar-menu-item" onClick={handleProjectSave}>Save Project</button>
+                <button type="button" className="topbar-menu-item" onClick={handleProjectLoad}>Load Project</button>
+              </div>
+            )}
+          </div>
           <button className="action-tag" onClick={() => { setActiveSettingsTab('comfyui'); setShowSettingsModal(true); }}>
             <Settings size={14} /> Settings
           </button>

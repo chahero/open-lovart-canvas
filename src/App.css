@@ -174,6 +174,45 @@ body {
   gap: 8px;
 }
 
+.topbar-menu-wrap {
+  position: relative;
+}
+
+.topbar-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 180px;
+  background: #ffffff;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.16);
+  padding: 6px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.topbar-menu-item {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1f2937;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.topbar-menu-item:hover {
+  background: #edf2ff;
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
 .export-format-select {
   height: 34px;
   border-radius: 10px;
