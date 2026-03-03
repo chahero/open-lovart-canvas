@@ -969,7 +969,22 @@ const rawMap = config.workflow_map;
       canvas.selection = activeToolRef.current !== 'mark' && activeToolRef.current !== 'eraser';
     };
 
+    let suppressNextNativeContextMenu = false;
+
     const handleMouseDown = (opt) => {
+      const button = Number.isFinite(opt?.button) ? opt.button : undefined;
+      const eventButton = Number.isFinite(opt?.e?.button) ? opt.e.button : undefined;
+      const eventWhich = Number.isFinite(opt?.e?.which) ? opt.e.which : undefined;
+      const isRightButton = button === 2 || button === 3 || eventButton === 2 || eventButton === 3 || eventWhich === 3;
+      const rightClickPointer = isRightButton ? canvas.getScenePoint(opt.e) : null;
+      const resolvedRightTarget = isRightButton
+        ? (opt.target && opt.target.id !== 'world-bounds'
+          ? opt.target
+          : canvas.getObjects()
+            .slice()
+            .reverse()
+            .find((obj) => obj.visible !== false && obj.id !== 'world-bounds' && obj.containsPoint(rightClickPointer)))
+        : null;
       if (activeToolRef.current === 'eraser') {
         const active = canvas.getActiveObject();
         const pointer = canvas.getScenePoint(opt.e);
@@ -995,7 +1010,7 @@ const rawMap = config.workflow_map;
         return;
       }
 
-      if (activeToolRef.current === 'mark' && !isSpacePanRef.current && opt.button !== 3) {
+      if (activeToolRef.current === 'mark' && !isSpacePanRef.current && !isRightButton) {
         const pointer = canvas.getScenePoint(opt.e);
         moveBrushCursor(opt.e);
 
@@ -1047,7 +1062,7 @@ const rawMap = config.workflow_map;
       const clickedCanvasObject = opt.target && opt.target.id !== 'world-bounds';
       if (
         clickedCanvasObject &&
-        opt.button !== 3 &&
+        !isRightButton &&
         !isSpacePanRef.current &&
         activeToolRef.current !== 'select' &&
         activeToolRef.current !== 'mark' &&
@@ -1068,9 +1083,15 @@ const rawMap = config.workflow_map;
         canvas.lastPosY = opt.e.clientY;
         canvas.upperCanvasEl.style.cursor = 'grabbing';
       }
-      if (opt.button === 3 && opt.target) {
-        canvas.setActiveObject(opt.target);
-        setContextMenu({ x: opt.e.clientX, y: opt.e.clientY, target: opt.target });
+      if (isRightButton && resolvedRightTarget) {
+        opt.e?.preventDefault?.();
+        opt.e?.stopPropagation?.();
+        canvas.setActiveObject(resolvedRightTarget);
+        setContextMenu({ x: opt.e.clientX, y: opt.e.clientY, target: resolvedRightTarget });
+        suppressNextNativeContextMenu = true;
+        window.setTimeout(() => {
+          suppressNextNativeContextMenu = false;
+        }, 100);
       } else {
         setContextMenu(null);
       }
@@ -1120,6 +1141,32 @@ const rawMap = config.workflow_map;
         drawMaskOverlay();
       }
     });
+
+    const handleCanvasContextMenu = (e) => {
+      if (suppressNextNativeContextMenu) {
+        suppressNextNativeContextMenu = false;
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      const scenePointer = canvas.getScenePoint(e);
+      const target = canvas.getObjects()
+        .slice()
+        .reverse()
+        .find((obj) => obj.id !== 'world-bounds' && obj.containsPoint(scenePointer));
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      if (!target) {
+        setContextMenu(null);
+        return;
+      }
+      canvas.setActiveObject(target);
+      setContextMenu({ x: e.clientX, y: e.clientY, target });
+    };
+
+    canvas.upperCanvasEl.addEventListener('contextmenu', handleCanvasContextMenu);
 
     canvas.on('mouse:up', handleMouseUp); // Call the new handler
     canvas.upperCanvasEl.addEventListener('mouseleave', hideEraserCursor);
@@ -1201,6 +1248,10 @@ const rawMap = config.workflow_map;
     window.addEventListener('keyup', handleKeyUp);
 
     return () => {
+      canvas.upperCanvasEl.removeEventListener('contextmenu', handleCanvasContextMenu);
+      canvas.off('mouse:down', handleMouseDown);
+      canvas.off('mouse:up', handleMouseUp);
+      canvas.upperCanvasEl.removeEventListener('mouseleave', hideEraserCursor);
       if (fabricCanvas.current) {
         fabricCanvas.current.dispose();
         fabricCanvas.current = null;
@@ -1210,7 +1261,6 @@ const rawMap = config.workflow_map;
       }
       isSpacePanRef.current = false;
       canvas.off('after:render', drawMaskOverlay);
-      canvas.upperCanvasEl.removeEventListener('mouseleave', hideEraserCursor);
       hideEraserCursor();
       canvas.upperCanvasEl.style.cursor = '';
       window.removeEventListener('keydown', handleKeyDown);
@@ -1233,6 +1283,165 @@ const rawMap = config.workflow_map;
     if (!activeGroup || activeGroup.type !== 'group') return;
     activeGroup.toActiveSelection();
     canvas.requestRenderAll();
+  };
+
+  const applyContextTargetAsActive = (target) => {
+    const canvas = fabricCanvas.current;
+    if (!canvas || !target) return;
+    if (!canvas.getActiveObject || canvas.getActiveObject() === target) return;
+    canvas.discardActiveObject();
+    canvas.setActiveObject(target);
+  };
+
+  const closeContextMenu = () => setContextMenu(null);
+
+  const handleContextBringToFront = () => {
+    const canvas = fabricCanvas.current;
+    const target = contextMenu?.target;
+    if (!canvas || !target || target.id === 'world-bounds') {
+      closeContextMenu();
+      return;
+    }
+
+    applyContextTargetAsActive(target);
+    if (typeof canvas.bringObjectToFront === 'function') {
+      canvas.bringObjectToFront(target);
+    } else if (typeof target.bringToFront === 'function') {
+      target.bringToFront();
+    } else if (typeof canvas.bringToFront === 'function') {
+      canvas.bringToFront(target);
+    } else {
+      const objects = canvas.getObjects();
+      const targetIndex = objects.indexOf(target);
+      if (targetIndex >= 0) {
+        canvas.moveTo(target, objects.length - 1);
+      }
+    }
+    canvas.requestRenderAll();
+    syncUI();
+    closeContextMenu();
+  };
+
+  const handleContextMoveForward = () => {
+    const canvas = fabricCanvas.current;
+    const target = contextMenu?.target;
+    if (!canvas || !target || target.id === 'world-bounds') {
+      closeContextMenu();
+      return;
+    }
+
+    applyContextTargetAsActive(target);
+    reorderLayer(target, 'up');
+    syncUI();
+    closeContextMenu();
+  };
+
+  const handleContextMoveBackward = () => {
+    const canvas = fabricCanvas.current;
+    const target = contextMenu?.target;
+    if (!canvas || !target || target.id === 'world-bounds') {
+      closeContextMenu();
+      return;
+    }
+
+    applyContextTargetAsActive(target);
+    reorderLayer(target, 'down');
+    syncUI();
+    closeContextMenu();
+  };
+
+  const handleContextSendToBack = () => {
+    const canvas = fabricCanvas.current;
+    const target = contextMenu?.target;
+    if (!canvas || !target || target.id === 'world-bounds') {
+      closeContextMenu();
+      return;
+    }
+
+    applyContextTargetAsActive(target);
+    if (typeof canvas.sendObjectToBack === 'function') {
+      canvas.sendObjectToBack(target);
+    } else if (typeof target.sendToBack === 'function') {
+      target.sendToBack();
+    } else if (typeof canvas.sendToBack === 'function') {
+      canvas.sendToBack(target);
+    } else if (typeof canvas.getObjects === 'function') {
+      const objects = canvas.getObjects();
+      const worldBoundsIndex = objects.findIndex((obj) => obj.id === 'world-bounds');
+      const targetBottomIndex = worldBoundsIndex >= 0 ? Math.min(worldBoundsIndex + 1, objects.length - 1) : 0;
+      if (typeof canvas.moveTo === 'function') {
+        canvas.moveTo(target, targetBottomIndex);
+      } else {
+        const activeObject = canvas.getActiveObject ? canvas.getActiveObject() : null;
+        if (!activeObject && typeof canvas.setActiveObject === 'function') {
+          canvas.setActiveObject(target);
+        }
+        target.moveTo && target.moveTo(targetBottomIndex);
+      }
+    }
+    canvas.requestRenderAll();
+    syncUI();
+    closeContextMenu();
+  };
+
+  const handleContextGroup = () => {
+    const canvas = fabricCanvas.current;
+    if (!canvas) return;
+    const active = canvas.getActiveObject();
+    const activeCount = (canvas.getActiveObjects ? canvas.getActiveObjects() : []).filter((obj) => obj.id !== 'world-bounds').length;
+    if (!active || active.type !== 'activeSelection' || activeCount < 2) {
+      closeContextMenu();
+      return;
+    }
+    active.toGroup();
+    canvas.requestRenderAll();
+    syncUI();
+    closeContextMenu();
+  };
+
+  const handleContextUngroup = () => {
+    const canvas = fabricCanvas.current;
+    if (!canvas) return;
+    const active = canvas.getActiveObject();
+    if (!active || active.type !== 'group') {
+      closeContextMenu();
+      return;
+    }
+    active.toActiveSelection();
+    canvas.requestRenderAll();
+    syncUI();
+    closeContextMenu();
+  };
+
+  const handleContextRemoveLayer = () => {
+    const canvas = fabricCanvas.current;
+    const target = contextMenu?.target;
+    if (!canvas || !target || target.id === 'world-bounds') {
+      closeContextMenu();
+      return;
+    }
+
+    canvas.remove(target);
+    if (canvas.getActiveObject() === target) {
+      canvas.discardActiveObject();
+    }
+    canvas.requestRenderAll();
+    syncUI();
+    closeContextMenu();
+  };
+
+  const handleContextRemoveBg = async () => {
+    const canvas = fabricCanvas.current;
+    const target = contextMenu?.target;
+    const isImageTarget = target && (target.type === 'FabricImage' || target.type === 'image');
+    if (!canvas || !target || target.id === 'world-bounds' || !isImageTarget) {
+      closeContextMenu();
+      return;
+    }
+
+    applyContextTargetAsActive(target);
+    setShowRemoveBgConfirm(true);
+    closeContextMenu();
   };
 
   const getSelectedBounds = () => {
@@ -2220,9 +2429,21 @@ const rawMap = config.workflow_map;
     if (!targetObj || !canvas) return;
 
     if (direction === 'up') {
-      canvas.bringObjectForward(targetObj);
+      if (typeof canvas.bringObjectForward === 'function') {
+        canvas.bringObjectForward(targetObj);
+      } else if (typeof targetObj.bringForward === 'function') {
+        targetObj.bringForward();
+      } else if (typeof canvas.bringForward === 'function') {
+        canvas.bringForward(targetObj);
+      }
     } else {
-      canvas.sendObjectBackwards(targetObj);
+      if (typeof canvas.sendObjectBackwards === 'function') {
+        canvas.sendObjectBackwards(targetObj);
+      } else if (typeof targetObj.sendBackwards === 'function') {
+        targetObj.sendBackwards();
+      } else if (typeof canvas.sendBackwards === 'function') {
+        canvas.sendBackwards(targetObj);
+      }
     }
 
     canvas.requestRenderAll();
@@ -2252,7 +2473,13 @@ const rawMap = config.workflow_map;
     }
     if (destinationIndex < 0) destinationIndex = 0;
 
-    canvas.moveObjectTo(sourceObj, destinationIndex);
+    if (typeof canvas.moveObjectTo === 'function') {
+      canvas.moveObjectTo(sourceObj, destinationIndex);
+    } else if (typeof canvas.moveTo === 'function') {
+      canvas.moveTo(sourceObj, destinationIndex);
+    } else if (typeof sourceObj.moveTo === 'function') {
+      sourceObj.moveTo(destinationIndex);
+    }
 
     if (selectedObject?.id === sourceObj.id) {
       canvas.setActiveObject(sourceObj);
@@ -3258,11 +3485,27 @@ const rawMap = config.workflow_map;
 
       {/* Context Popup */}
       {
-        contextMenu && (
-          <div className="floating-context" style={{ top: contextMenu.y, left: contextMenu.x }}>
-            <div className="context-item red" onClick={() => { fabricCanvas.current.remove(contextMenu.target); setContextMenu(null); }}><Trash2 size={14} /> Remove Layer</div>
-          </div>
-        )
+        contextMenu && contextMenu.target && contextMenu.target.id !== 'world-bounds' && (() => {
+          const target = contextMenu.target;
+          const targetType = target.type;
+          const targetIsImage = targetType === 'FabricImage' || targetType === 'image';
+          const activeObjects = (fabricCanvas.current?.getActiveObjects ? fabricCanvas.current.getActiveObjects() : []).filter((obj) => obj.id !== 'world-bounds');
+          const canGroup = activeObjects.length >= 2;
+          const canUngroup = targetType === 'group';
+
+          return (
+              <div className="floating-context" style={{ top: contextMenu.y, left: contextMenu.x }}>
+              <div className="context-item" onClick={handleContextBringToFront}><ChevronUp size={14} /> Bring to Front</div>
+              <div className="context-item" onClick={handleContextMoveForward}><ChevronUp size={14} /> Move Forward</div>
+              <div className="context-item" onClick={handleContextSendToBack}><ChevronDown size={14} /> Send to Back</div>
+              <div className="context-item" onClick={handleContextMoveBackward}><ChevronDown size={14} /> Move Backward</div>
+              <div className={`context-item ${canGroup ? '' : 'disabled'}`} onClick={canGroup ? handleContextGroup : undefined} style={canGroup ? {} : { opacity: 0.45, pointerEvents: 'none' }}><Group size={14} /> Group</div>
+              <div className={`context-item ${canUngroup ? '' : 'disabled'}`} onClick={canUngroup ? handleContextUngroup : undefined} style={canUngroup ? {} : { opacity: 0.45, pointerEvents: 'none' }}><Ungroup size={14} /> Ungroup</div>
+              <div className={`context-item ${targetIsImage ? '' : 'disabled'}`} onClick={targetIsImage ? handleContextRemoveBg : undefined} style={targetIsImage ? {} : { opacity: 0.45, pointerEvents: 'none' }}><Sparkles size={14} /> Remove Background</div>
+              <div className="context-item red" onClick={handleContextRemoveLayer}><Trash2 size={14} /> Remove Layer</div>
+            </div>
+          );
+        })()
       }
 
       <footer className="footer-bar">
