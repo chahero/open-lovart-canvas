@@ -215,6 +215,7 @@ const rawMap = config.workflow_map;
   const eraserCursorRef = useRef(null);
   const maskOverlayRef = useRef(null);
   const imageInputRef = useRef(null);
+  const projectFileInputRef = useRef(null);
   const isFillDraftingRef = useRef(false);
   const fillDraftRef = useRef(null);
   const fillPreviewSessionRef = useRef({ active: false, objectId: null, startFill: null });
@@ -1547,7 +1548,7 @@ const rawMap = config.workflow_map;
   const handleContextBringToFront = () => {
     const canvas = fabricCanvas.current;
     const target = contextMenu?.target;
-    if (!canvas || !target || target.id === 'world-bounds') {
+      if (!canvas || !target || isWorldBoundsObject(target)) {
       closeContextMenu();
       return;
     }
@@ -1574,7 +1575,7 @@ const rawMap = config.workflow_map;
   const handleContextMoveForward = () => {
     const canvas = fabricCanvas.current;
     const target = contextMenu?.target;
-    if (!canvas || !target || target.id === 'world-bounds') {
+    if (!canvas || !target || isWorldBoundsObject(target)) {
       closeContextMenu();
       return;
     }
@@ -1588,7 +1589,7 @@ const rawMap = config.workflow_map;
   const handleContextMoveBackward = () => {
     const canvas = fabricCanvas.current;
     const target = contextMenu?.target;
-    if (!canvas || !target || target.id === 'world-bounds') {
+    if (!canvas || !target || isWorldBoundsObject(target)) {
       closeContextMenu();
       return;
     }
@@ -1602,7 +1603,7 @@ const rawMap = config.workflow_map;
   const handleContextSendToBack = () => {
     const canvas = fabricCanvas.current;
     const target = contextMenu?.target;
-    if (!canvas || !target || target.id === 'world-bounds') {
+    if (!canvas || !target || isWorldBoundsObject(target)) {
       closeContextMenu();
       return;
     }
@@ -1616,7 +1617,7 @@ const rawMap = config.workflow_map;
       canvas.sendToBack(target);
     } else if (typeof canvas.getObjects === 'function') {
       const objects = canvas.getObjects();
-      const worldBoundsIndex = objects.findIndex((obj) => obj.id === 'world-bounds');
+      const worldBoundsIndex = objects.findIndex((obj) => isWorldBoundsObject(obj));
       const targetBottomIndex = worldBoundsIndex >= 0 ? Math.min(worldBoundsIndex + 1, objects.length - 1) : 0;
       if (typeof canvas.moveTo === 'function') {
         canvas.moveTo(target, targetBottomIndex);
@@ -1637,7 +1638,7 @@ const rawMap = config.workflow_map;
     const canvas = fabricCanvas.current;
     if (!canvas) return;
     const active = canvas.getActiveObject();
-    const activeCount = (canvas.getActiveObjects ? canvas.getActiveObjects() : []).filter((obj) => obj.id !== 'world-bounds').length;
+      const activeCount = (canvas.getActiveObjects ? canvas.getActiveObjects() : []).filter((obj) => !isWorldBoundsObject(obj)).length;
     if (!active || !isActiveSelectionType(active) || activeCount < 2) {
       closeContextMenu();
       return;
@@ -1667,14 +1668,491 @@ const rawMap = config.workflow_map;
     closeContextMenu();
   };
 
+  const generateObjectId = useCallback(() => {
+    const now = Date.now().toString(36);
+    const random = Math.random().toString(36).slice(2, 10);
+    return `obj-${now}-${random}`;
+  }, []);
+
+  const isWorldBoundsObject = useCallback((obj) => {
+    if (!obj || typeof obj !== 'object') return false;
+    if (obj.id === 'world-bounds' || obj.name === 'world-bounds' || obj.isWorldBounds === true) {
+      return true;
+    }
+
+    if (obj.type !== 'Rect') return false;
+
+    const width = Number(obj.width);
+    const height = Number(obj.height);
+    const left = Number(obj.left);
+    const top = Number(obj.top);
+    const strokeWidth = Number(obj.strokeWidth || 0);
+    const fill = obj.fill;
+    const stroke = obj.stroke;
+
+    const isCanvasSized = Math.abs(width - WORLD_CANVAS_WIDTH) < 0.001 && Math.abs(height - WORLD_CANVAS_HEIGHT) < 0.001;
+    const isCentered = Math.abs(left - 0) < 0.001 && Math.abs(top - 0) < 0.001;
+    const hasWorldOrigin = obj.originX === 'center' && obj.originY === 'center';
+    const isTransparentFill = fill === null || fill === undefined || fill === 'transparent' || fill === 'rgba(255,255,255,0)';
+    const isTransparentStroke = stroke === null || stroke === undefined || stroke === 'transparent' || Number.isNaN(strokeWidth) || strokeWidth === 0;
+    return isCanvasSized && isCentered && hasWorldOrigin && isTransparentFill && isTransparentStroke;
+  }, []);
+
+  const ensureObjectId = useCallback((obj, usedIds = new Set()) => {
+    if (!obj || typeof obj !== 'object') return;
+    if (typeof obj.id === 'string' && obj.id.trim() !== '') {
+      usedIds.add(obj.id);
+      return obj.id;
+    }
+
+    let newId = generateObjectId();
+    while (usedIds.has(newId)) {
+      newId = generateObjectId();
+    }
+    usedIds.add(newId);
+    obj.id = newId;
+    return newId;
+  }, [generateObjectId]);
+
+  const buildProjectObjects = useCallback((objects) => {
+    const usedIds = new Set();
+    const filtered = [];
+    (objects || []).forEach((obj) => {
+      if (!obj || isWorldBoundsObject(obj)) return;
+      const withId = ensureObjectId(obj, usedIds);
+      if (!withId || withId === 'world-bounds') return;
+      filtered.push(obj);
+    });
+
+    return {
+      objects: filtered,
+      usedIds,
+    };
+  }, [ensureObjectId, isWorldBoundsObject]);
+
+  const PROJECT_FILE_VERSION = '2.0';
+
   const handleProjectSave = () => {
     setShowProjectMenu(false);
-    alert('Project save is not implemented yet.');
+    const canvas = fabricCanvas.current;
+    if (!canvas) return;
+
+    logProjectObjectState('save:objects-before', canvas.getObjects());
+    logProjectObjectState('save:objects-before:all', canvas.getObjects(), true);
+
+    const rawCanvasObjects = (canvas.getObjects ? canvas.getObjects() : []);
+    const serializedObjects = rawCanvasObjects
+      .filter((obj) => obj && !isWorldBoundsObject(obj))
+      .map((obj) => obj.toObject(['id', 'name', 'originalWidth', 'originalHeight', 'isWorldBounds']));
+    const { objects: saveObjects } = buildProjectObjects(serializedObjects);
+    const objectsWithId = saveObjects.filter((obj) => obj && obj.id);
+    const objectsWithoutId = saveObjects.filter((obj) => obj && !obj.id);
+    console.log('[ProjectDebug] save:toJSON-summary', {
+      canvasVersion: canvas.version || '7.1.0',
+      objectCount: saveObjects.length,
+      includeWorldCandidates: saveObjects.filter((obj) => obj?.type === 'Rect' && Number(obj?.width) === 5000 && Number(obj?.height) === 5000).length,
+      withId: objectsWithId.length,
+      withoutId: objectsWithoutId.length,
+      ids: objectsWithId.map((obj) => obj.id),
+    });
+    console.log(
+      '[ProjectDebug] save:toJSON-object-keys',
+      saveObjects.map((obj, index) => ({
+        index,
+        type: obj?.type || '<none>',
+        id: obj?.id || '<no-id>',
+        hasName: Boolean(obj?.name),
+        keysCount: obj && typeof obj === 'object' ? Object.keys(obj).length : 0,
+      })),
+    );
+    console.log(
+      '[ProjectDebug] save:toJSON-noid-samples',
+      objectsWithoutId.map((obj, index) => ({
+        index,
+        type: obj?.type,
+        originX: obj?.originX,
+        originY: obj?.originY,
+        left: obj?.left,
+        top: obj?.top,
+        width: obj?.width,
+        height: obj?.height,
+        stroke: obj?.stroke,
+        fill: obj?.fill,
+        visible: obj?.visible,
+        opacity: obj?.opacity,
+      })),
+    );
+
+    const savedSettingsDraft = settingsDraft || {};
+    const savedWorkflowMap = savedSettingsDraft.workflowMap || {};
+    const projectSettings = {
+      activeAiMode,
+      activePanelTab,
+      activePropsTab,
+      activeSettingsTab,
+      showAlignmentHint,
+      exportFormat,
+      exportWidth,
+      exportHeight,
+      exportKeepAspect,
+      exportAspectRatio,
+      settingsDraft: {
+        comfyui: String(savedSettingsDraft.comfyui || '').trim(),
+        workflow: String(savedSettingsDraft.workflow || '').trim(),
+        ocrModel: String(savedSettingsDraft.ocrModel || '').trim(),
+        ollama: String(savedSettingsDraft.ollama || '').trim(),
+        workflowMap: {
+          t2i: String(savedWorkflowMap.t2i || '').trim(),
+          i2i_single: String(savedWorkflowMap.i2i_single || '').trim(),
+          i2i_multi: String(savedWorkflowMap.i2i_multi || '').trim(),
+          upscale: String(savedWorkflowMap.upscale || '').trim(),
+        },
+      },
+    };
+
+    const projectData = {
+      version: PROJECT_FILE_VERSION,
+      savedAt: new Date().toISOString(),
+      metadata: {
+        canvasBg,
+        showGrid,
+        snapEnabled,
+        zoom,
+      },
+      settings: projectSettings,
+      viewport: {
+        zoom: canvas.getZoom(),
+        transform: canvas.viewportTransform ? [...canvas.viewportTransform] : null,
+      },
+      canvas: {
+        version: canvas.version || '7.1.0',
+        objects: saveObjects,
+        background: canvas.backgroundColor || 'transparent',
+      },
+    };
+
+    const blob = new Blob([JSON.stringify(projectData, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `lovart-project-${Date.now()}.lvcproj`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
   };
 
   const handleProjectLoad = () => {
     setShowProjectMenu(false);
-    alert('Project load is not implemented yet.');
+    if (!projectFileInputRef.current) return;
+    projectFileInputRef.current.value = '';
+    projectFileInputRef.current.click();
+  };
+
+  const logProjectObjectState = (label, objectList, includeNoId = false) => {
+    try {
+      const items = (objectList || []);
+      const list = items
+        .filter((obj) => isWorldBoundsObject(obj) === false)
+        .filter((obj) => includeNoId || Boolean(obj?.id))
+        .map((obj) => ({
+          id: obj?.id || '<no-id>',
+          type: obj.type,
+          name: obj.name || '',
+          src: obj.type === 'image' ? obj.src : undefined,
+          left: Number(obj.left || 0),
+          top: Number(obj.top || 0),
+          scaleX: Number(obj.scaleX || 1),
+          scaleY: Number(obj.scaleY || 1),
+          angle: Number(obj.angle || 0),
+          width: Number(obj.width || 0),
+          height: Number(obj.height || 0),
+          originX: obj.originX || 'left',
+          originY: obj.originY || 'top',
+        }));
+      console.log(`[ProjectDebug] ${label}`, {
+        includeNoId,
+        total: items.length,
+        filtered: list.length,
+        list,
+      });
+    } catch (error) {
+      console.warn('[ProjectDebug] failed to build object state log', error);
+    }
+  };
+
+  const logRawProjectObjects = (label, objectList) => {
+    try {
+      const items = (objectList || []).map((obj, index) => ({
+        index,
+        type: obj?.type || '',
+        hasId: Boolean(obj?.id),
+        id: obj?.id || '<no-id>',
+        keys: obj && typeof obj === 'object' ? Object.keys(obj).slice(0, 25) : [],
+        left: obj?.left,
+        top: obj?.top,
+        width: obj?.width,
+        height: obj?.height,
+        angle: obj?.angle,
+        scaleX: obj?.scaleX,
+        scaleY: obj?.scaleY,
+        src: obj?.type === 'image' ? obj.src : undefined,
+        name: obj?.name || '',
+      }));
+      console.log(`[ProjectDebug] ${label}`, {
+        count: items.length,
+        items,
+      });
+    } catch (error) {
+      console.warn('[ProjectDebug] failed to build raw object log', error);
+    }
+  };
+
+  const logProjectBounds = (label, canvas) => {
+    if (!canvas) return;
+    try {
+      const objects = canvas.getObjects();
+      const list = objects
+        .filter((obj) => obj?.id && !isWorldBoundsObject(obj))
+        .map((obj) => {
+          const rect = obj.getBoundingRect(true, true);
+          return {
+            id: obj.id,
+            type: obj.type,
+            left: obj.left,
+            top: obj.top,
+            angle: obj.angle || 0,
+            scaleX: obj.scaleX || 1,
+            scaleY: obj.scaleY || 1,
+            width: obj.width || 0,
+            height: obj.height || 0,
+            originX: obj.originX || 'left',
+            originY: obj.originY || 'top',
+            leftBound: rect.left,
+            topBound: rect.top,
+            rightBound: rect.left + rect.width,
+            bottomBound: rect.top + rect.height,
+          };
+        });
+      const worldObj = objects.find((obj) => isWorldBoundsObject(obj));
+      console.log(
+        `[ProjectDebug] ${label} objects=${list.length} worldBounds=${Boolean(worldObj)} viewport=${JSON.stringify(
+          canvas.viewportTransform,
+        )}`,
+        {
+          list,
+          zoom: canvas.getZoom(),
+        },
+      );
+    } catch (error) {
+      console.warn('[ProjectDebug] failed to build bounds log', error);
+    }
+  };
+
+  const ensureWorldBounds = (canvas) => {
+    if (!canvas) return;
+    const existing = canvas.getObjects().find((obj) => isWorldBoundsObject(obj));
+    if (existing) {
+      existing.set({
+        id: 'world-bounds',
+        name: 'world-bounds',
+        isWorldBounds: true,
+        selectable: false,
+        evented: false,
+        stroke: '#d9d9d9',
+        strokeWidth: 1,
+        strokeUniform: false,
+        visible: true,
+      });
+      if (typeof canvas.sendObjectToBack === 'function') {
+        canvas.sendObjectToBack(existing);
+      } else if (typeof existing.sendToBack === 'function') {
+        existing.sendToBack();
+      } else if (typeof canvas.sendToBack === 'function') {
+        canvas.sendToBack(existing);
+      } else if (typeof canvas.moveTo === 'function') {
+        canvas.moveTo(existing, 0);
+      }
+      return;
+    }
+
+    const worldBounds = new fabric.Rect({
+      left: -WORLD_CANVAS_WIDTH / 2,
+      top: -WORLD_CANVAS_HEIGHT / 2,
+      width: WORLD_CANVAS_WIDTH,
+      height: WORLD_CANVAS_HEIGHT,
+      fill: 'transparent',
+      stroke: '#d9d9d9',
+      strokeWidth: 1,
+      strokeUniform: false,
+      selectable: false,
+      evented: false,
+      hasControls: false,
+      hasBorders: false,
+      isWorldBounds: true,
+      name: 'world-bounds',
+      id: 'world-bounds',
+    });
+    canvas.add(worldBounds);
+    if (typeof canvas.sendObjectToBack === 'function') {
+      canvas.sendObjectToBack(worldBounds);
+    } else if (typeof worldBounds.sendToBack === 'function') {
+      worldBounds.sendToBack();
+    } else if (typeof canvas.sendToBack === 'function') {
+      canvas.sendToBack(worldBounds);
+    } else if (typeof canvas.moveTo === 'function') {
+      canvas.moveTo(worldBounds, 0);
+    }
+  };
+
+  const restoreCanvasFromProject = async (projectData) => {
+    const canvas = fabricCanvas.current;
+    if (!canvas) return;
+
+    const rawCanvas = projectData?.canvas;
+    const savedVersion = projectData?.version;
+    if (savedVersion !== PROJECT_FILE_VERSION || !rawCanvas || typeof rawCanvas !== 'object' || !Array.isArray(rawCanvas.objects)) {
+      throw new Error(`Invalid project format. Expected version ${PROJECT_FILE_VERSION}`);
+    }
+
+    console.log('[ProjectDebug] restore:start', {
+      savedVersion: projectData?.version || 'unknown',
+      hasViewport: Boolean(projectData?.viewport),
+      objectCount: rawCanvas.objects.length,
+      jsonKeys: Object.keys(rawCanvas),
+      viewportZoom: projectData?.viewport?.zoom,
+    });
+
+    logRawProjectObjects('restore:raw objects', rawCanvas.objects);
+
+    const sanitizedObjects = buildProjectObjects((rawCanvas.objects || []).map((obj) => ({ ...obj })));
+    const sanitized = {
+      ...rawCanvas,
+      objects: sanitizedObjects.objects,
+    };
+
+    logProjectObjectState('restore:before-load', sanitized.objects, true);
+
+    await new Promise((resolve, reject) => {
+      try {
+        const loadResult = canvas.loadFromJSON(sanitized, resolve);
+        if (loadResult?.then) {
+          loadResult.then(resolve).catch(reject);
+        }
+      } catch (error) {
+        reject(error);
+      }
+    });
+
+    ensureWorldBounds(canvas);
+    logProjectObjectState('restore:after-load', canvas.getObjects(), true);
+    logProjectBounds('restore:after-load', canvas);
+    console.log('[ProjectDebug] restore:viewportState', {
+      savedViewport: projectData?.viewport,
+      canvasTransformBefore: canvas.viewportTransform,
+      canvasZoomBefore: canvas.getZoom(),
+    });
+
+    if (projectData?.metadata && typeof projectData.metadata === 'object') {
+      if (typeof projectData.metadata.canvasBg === 'string') setCanvasBg(projectData.metadata.canvasBg);
+      if (typeof projectData.metadata.showGrid === 'boolean') setShowGrid(projectData.metadata.showGrid);
+      if (typeof projectData.metadata.snapEnabled === 'boolean') setSnapEnabled(projectData.metadata.snapEnabled);
+      if (typeof projectData.metadata.zoom === 'number') setZoom(projectData.metadata.zoom);
+    }
+
+    const savedSettings = projectData?.settings;
+    if (savedSettings && typeof savedSettings === 'object') {
+      const validModes = ['t2i', 'i2i_single', 'i2i_multi'];
+      const validPanelTabs = ['layers', 'properties', 'library'];
+      const validPropsTabs = ['text', 'image', 'shape'];
+      const validSettingsTabs = ['comfyui', 'ollama'];
+      if (typeof savedSettings.activeAiMode === 'string' && validModes.includes(savedSettings.activeAiMode)) {
+        setActiveAiMode(savedSettings.activeAiMode);
+      }
+      if (typeof savedSettings.activePanelTab === 'string' && validPanelTabs.includes(savedSettings.activePanelTab)) {
+        setActivePanelTab(savedSettings.activePanelTab);
+      }
+      if (typeof savedSettings.activePropsTab === 'string' && validPropsTabs.includes(savedSettings.activePropsTab)) {
+        setActivePropsTab(savedSettings.activePropsTab);
+      }
+      if (typeof savedSettings.activeSettingsTab === 'string' && validSettingsTabs.includes(savedSettings.activeSettingsTab)) {
+        setActiveSettingsTab(savedSettings.activeSettingsTab);
+      }
+      if (typeof savedSettings.showAlignmentHint === 'boolean') {
+        setShowAlignmentHint(savedSettings.showAlignmentHint);
+      }
+      if (typeof savedSettings.exportFormat === 'string') setExportFormat(savedSettings.exportFormat);
+      if (typeof savedSettings.exportWidth === 'string' || typeof savedSettings.exportWidth === 'number') setExportWidth(String(savedSettings.exportWidth));
+      if (typeof savedSettings.exportHeight === 'string' || typeof savedSettings.exportHeight === 'number') setExportHeight(String(savedSettings.exportHeight));
+      if (typeof savedSettings.exportKeepAspect === 'boolean') setExportKeepAspect(savedSettings.exportKeepAspect);
+      if (typeof savedSettings.exportAspectRatio === 'number') setExportAspectRatio(savedSettings.exportAspectRatio);
+
+      const savedSettingsDraft = savedSettings.settingsDraft;
+      if (savedSettingsDraft && typeof savedSettingsDraft === 'object') {
+        const rawMap = savedSettingsDraft.workflowMap;
+        const safeMap = typeof rawMap === 'object' && rawMap !== null ? rawMap : {};
+        setSettingsDraft((prev) => ({
+          ...prev,
+          comfyui: typeof savedSettingsDraft.comfyui === 'string' ? savedSettingsDraft.comfyui : prev.comfyui,
+          workflow: typeof savedSettingsDraft.workflow === 'string' ? savedSettingsDraft.workflow : prev.workflow,
+          ocrModel: typeof savedSettingsDraft.ocrModel === 'string' ? savedSettingsDraft.ocrModel : prev.ocrModel,
+          ollama: typeof savedSettingsDraft.ollama === 'string' ? savedSettingsDraft.ollama : prev.ollama,
+          workflowMap: {
+            ...prev.workflowMap,
+            t2i: typeof safeMap.t2i === 'string' ? safeMap.t2i : prev.workflowMap.t2i,
+            i2i_single: typeof safeMap.i2i_single === 'string' ? safeMap.i2i_single : prev.workflowMap.i2i_single,
+            i2i_multi: typeof safeMap.i2i_multi === 'string' ? safeMap.i2i_multi : prev.workflowMap.i2i_multi,
+            upscale: typeof safeMap.upscale === 'string' ? safeMap.upscale : prev.workflowMap.upscale,
+          },
+        }));
+      }
+    }
+
+    const viewportTransform = projectData?.viewport?.transform;
+    const savedZoom = projectData?.viewport?.zoom;
+    if (Array.isArray(viewportTransform) && viewportTransform.length === 6) {
+      canvas.setViewportTransform([...viewportTransform]);
+    } else if (typeof savedZoom === 'number') {
+      canvas.setZoom(savedZoom);
+    }
+    console.log('[ProjectDebug] restore:viewportApplied', {
+      savedViewportTransform: viewportTransform || null,
+      savedZoom,
+      appliedTransform: canvas.viewportTransform,
+      appliedZoom: canvas.getZoom(),
+    });
+
+    canvas.requestRenderAll();
+    logProjectBounds('restore:after-view', canvas);
+    syncArtboardPattern();
+    syncUI();
+    setSelectedObject(null);
+    setRenamingId(null);
+    setShowProjectMenu(false);
+  };
+
+  const handleProjectFileChange = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      console.log('[ProjectDebug] file:loaded', {
+        fileName: file.name,
+        fileSize: file.size,
+        keys: Object.keys(parsed || {}),
+        hasCanvas: Boolean(parsed?.canvas),
+        hasViewport: Boolean(parsed?.viewport),
+      });
+      await restoreCanvasFromProject(parsed);
+    } catch (error) {
+      console.error('Failed to load project:', error);
+      alert('Failed to load project file.');
+    }
   };
 
   const handleContextRenameLayer = () => {
@@ -2857,6 +3335,14 @@ const rawMap = config.workflow_map;
     <div className="app-container" onContextMenu={(e) => e.preventDefault()}>
       <Sidebar />
       <Topbar />
+
+      <input
+        ref={projectFileInputRef}
+        type="file"
+        accept=".lvcproj,.json"
+        hidden
+        onChange={handleProjectFileChange}
+      />
 
       {/* Main Artboard */}
       <main
