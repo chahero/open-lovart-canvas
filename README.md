@@ -1,48 +1,79 @@
 # Open Lovart Canvas (Alpha)
 
-AI 기반 이미지 편집 툴 Lovart의 핵심 기능을 오픈소스 기술로 재현하는 프로젝트입니다. 레이어 기반의 직관적인 디자인 시스템과 향후 AI 모델 연동을 위한 Mark Mode(Touch Edit) 인터페이스를 제공합니다.
+[**English version**](./README.EN.md)
 
-## ✨ 주요 기능
+Open Lovart Canvas는 Fabric.js 기반의 웹 캔버스 편집기입니다.
+이미지를 그리는/편집하는 작업 흐름에 AI 파이프라인을 결합해,
+빠르게 시안·수정·재생성을 반복할 수 있도록 설계한 프로젝트입니다.
 
-- **레이어 기반 편집**: 이미지, 텍스트, 도형을 각각의 레이어로 자유롭게 배치하고 수정할 수 있습니다.
-- **Mark Mode (Touch Edit)**: Lovart의 핵심 UX인 '터치 편집'을 재현했습니다. 클릭만으로 객체 좌표를 마킹하고 AI 처리를 준비합니다.
-- **Drag & Drop 업로드**: 탐색기에서 이미지를 캔버스로 직접 끌어다 놓아 즉시 추가할 수 있습니다.
-- **프리미엄 UI/UX**: 다크 모드 기반의 세련된 디자인과 둥근 컨트롤러, 글래스모피즘이 적용된 플로팅 바를 제공합니다.
-- **단축키 및 편의 기능**:
-  - `M`: Mark Mode 전환
-  - `V`: 선택 도구 전환
-  - `Delete / Backspace`: 객체 삭제
-  - `Ctrl + C / V`: 객체 복사 및 붙여넣기
-  - 우클릭 컨텍스트 메뉴 제공
+## 핵심 기능
 
-## 🛠 기술 스택
+- **캔버스 편집기**
+  - 도형/이미지/텍스트 레이어를 생성하고 배치
+  - 이동, 크기 조절, 회전, 스냅, 그룹/해제, 정렬
+- **Touch Edit (Mark Mode)**
+  - `M` 토글, 브러시/펜 기반 편집 흐름 지원
+- **컨텍스트 기반 레이어 액션**
+  - 레이어 우클릭 메뉴(앞/뒤로 보내기, 순서 이동, 그룹/해제, 배경 제거 등)
+- **레이어 이름 관리**
+  - 라이브러리/레이어 이름 편집
+- **AI 기능 통합**
+  - FastAPI 백엔드 기반 ComfyUI/Ollama 연동
+  - T2I / I2I / I2I Multi 버튼 분리
+  - 워크플로우별 프롬프트/이미지 입력 매핑 설정
+- **AI 작업 메뉴**
+  - Object Split(SAM), Background Removal, Smart OCR Edit, Image Upscale
+- **프로젝트 저장/복원**
+  - `.lvcproj` 포맷으로 작업 상태 저장
+  - 캔버스 배경/격자/줌/스냅/설정까지 함께 복원
+- **Export & 설정**
+  - 해상도/포맷을 지정해 이미지 저장
+  - Settings에서 ComfyUI/Ollama 구성 일괄 관리
 
-- **Frontend**: React (Vite)
-- **Canvas Engine**: Fabric.js
-- **Icons**: Lucide-React
-- **Styling**: Vanilla CSS (Custom Properties)
+## 기술 스택
 
-## 🚀 시작하기
+- Frontend: React + Vite
+- Canvas Engine: Fabric.js
+- Backend: FastAPI
+- Language: JavaScript / Python
 
-### 설치
+## 실행 방법
+
+### Frontend
+
 ```bash
 npm install
-```
-
-### 실행
-```bash
 npm run dev
 ```
 
-## 🗺 로드맵 (AI 연동 계획)
+### Backend
 
-향후 다음과 같은 AI 기능을 백엔드(FastAPI)와 연동하여 구현할 예정입니다.
+```bash
+cd server
+python -m venv .venv
+# Windows
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8002 --reload
+```
 
-1. **Object Split (SAM)**: 마킹된 좌표를 바탕으로 배경에서 객체를 자동으로 분리하여 개별 레이어화
-2. **AI Background Removal**: 원클릭 배경 제거 기능
-3. **Smart OCR Edit**: 이미지 내 텍스트를 인식하여 배경은 채우고(Inpainting), 글자만 수정 가능하게 변경
-4. **Image Upscale**: 저해상도 이미지의 품질 개선
+`server/.env` 예시:
 
-## 📄 라이선스
+```env
+OLLAMA_URL=http://192.168.0.67:11434
+COMFYUI_URL=http://192.168.0.67:8188
+SAM3_MODEL_PATH=models/sam3.pt
+SERVER_HOST=0.0.0.0
+SERVER_PORT=8002
+FRONTEND_URL=http://localhost:5173
+```
 
-이 프로젝트는 학습 및 연구 목적으로 제작되었습니다.
+## 프로젝트 상태
+
+- 현재 기능은 계속 개선 중입니다.
+- 주요 흐름: 캔버스 편집 안정성, AI 워크플로우 매핑/호환성, 저장 포맷 정합성
+- 버그/개선 건의는 이슈로 남겨 주시면 우선순위 반영합니다.
+
+## 라이선스
+
+라이선스 정책은 추후 확정 예정입니다.
