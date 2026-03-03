@@ -2231,13 +2231,33 @@ const rawMap = config.workflow_map;
 
   const moveLayerByDrag = (sourceIdx, targetIdx) => {
     const canvas = fabricCanvas.current;
-    if (!canvas || sourceIdx === targetIdx) return;
+    if (!canvas || sourceIdx == null || targetIdx == null || sourceIdx === targetIdx) return;
 
-    const sourceObj = layers[sourceIdx].object;
-    // layers[0] is top of stack (last in canvas array)
-    const newCanvasIndex = canvas.getObjects().length - 1 - targetIdx;
+    const allCanvasObjects = canvas.getObjects();
+    const orderedCanvasObjects = allCanvasObjects.filter(obj => obj.id !== 'world-bounds');
 
-    canvas.moveObjectTo(sourceObj, newCanvasIndex);
+    if (sourceIdx < 0 || targetIdx < 0 || sourceIdx >= orderedCanvasObjects.length || targetIdx >= orderedCanvasObjects.length) return;
+
+    const sourceObj = orderedCanvasObjects[sourceIdx];
+    const targetObj = orderedCanvasObjects[targetIdx];
+    if (!sourceObj || !targetObj || sourceObj === targetObj) return;
+
+    const sourceCanvasIndex = allCanvasObjects.indexOf(sourceObj);
+    const targetCanvasIndex = allCanvasObjects.indexOf(targetObj);
+    if (sourceCanvasIndex === -1 || targetCanvasIndex === -1) return;
+
+    let destinationIndex = targetCanvasIndex;
+    if (sourceCanvasIndex < targetCanvasIndex) {
+      destinationIndex -= 1;
+    }
+    if (destinationIndex < 0) destinationIndex = 0;
+
+    canvas.moveObjectTo(sourceObj, destinationIndex);
+
+    if (selectedObject?.id === sourceObj.id) {
+      canvas.setActiveObject(sourceObj);
+    }
+
     canvas.requestRenderAll();
     syncUI();
   };
@@ -2815,10 +2835,25 @@ const rawMap = config.workflow_map;
                   key={l.id}
                   className={`layer-row ${l.active ? 'active' : ''} ${draggedLayerIndex === idx ? 'dragging' : ''} ${dragOverIndex === idx ? 'drag-over' : ''}`}
                   draggable
-                  onDragStart={() => setDraggedLayerIndex(idx)}
-                  onDragOver={(e) => { e.preventDefault(); setDragOverIndex(idx); }}
-                  onDragEnd={() => { setDraggedLayerIndex(null); setDragOverIndex(null); }}
-                  onDrop={(e) => { e.preventDefault(); moveLayerByDrag(draggedLayerIndex, idx); setDragOverIndex(null); }}
+                  onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = 'move';
+                    setDraggedLayerIndex(idx);
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    setDragOverIndex(idx);
+                  }}
+                  onDragEnd={() => {
+                    setDraggedLayerIndex(null);
+                    setDragOverIndex(null);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    moveLayerByDrag(draggedLayerIndex, idx);
+                    setDraggedLayerIndex(null);
+                    setDragOverIndex(null);
+                  }}
                   onClick={() => { fabricCanvas.current.setActiveObject(l.object); fabricCanvas.current.requestRenderAll(); }}
                 >
                   <div className="l-order-btns">

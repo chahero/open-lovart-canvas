@@ -967,7 +967,8 @@ input[type="color"]::-webkit-color-swatch {
   border-radius: 12px;
   border: 1px solid rgba(148, 163, 184, 0.35);
   gap: 12px;
-  cursor: pointer;
+  cursor: grab;
+  user-select: none;
 }
 
 .layer-row:hover {
@@ -983,6 +984,7 @@ input[type="color"]::-webkit-color-swatch {
   opacity: 0.4;
   background: #eef2f8;
   border: 1px dashed var(--accent);
+  cursor: grabbing;
 }
 
 .layer-row.drag-over {
