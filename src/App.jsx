@@ -218,6 +218,8 @@ const rawMap = config.workflow_map;
   const fillDraftRef = useRef(null);
   const fillPreviewSessionRef = useRef({ active: false, objectId: null, startFill: null });
   const suspendMaskOverlayUntilRef = useRef(0);
+  const rightClickActiveSelectionIdsRef = useRef([]);
+  const rightClickSelectionEpochRef = useRef(0);
 
   // --- Sync Refs ---
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
@@ -319,6 +321,111 @@ const rawMap = config.workflow_map;
       setSelectedObject(null);
     }
   }, []);
+
+  const isActiveSelectionType = (obj) => (
+    typeof obj?.type === 'string' && obj.type.toLowerCase() === 'activeselection'
+  );
+
+  const createGroupFromActiveObjects = (canvas) => {
+    const active = canvas.getActiveObject();
+    const activeObjects = (canvas.getActiveObjects ? canvas.getActiveObjects() : []).filter((obj) => obj?.id !== 'world-bounds');
+    if (!active || !isActiveSelectionType(active) || activeObjects.length < 2) return null;
+
+    if (typeof active.toGroup === 'function') {
+      return active.toGroup();
+    }
+
+    if (typeof fabric.Group === 'undefined') return null;
+
+    const allObjects = canvas.getObjects ? canvas.getObjects() : [];
+    const objectIndexes = activeObjects.map((obj) => allObjects.indexOf(obj)).filter((idx) => idx >= 0);
+    const targetIndex = objectIndexes.length ? Math.min(...objectIndexes) : null;
+
+    canvas.discardActiveObject();
+    activeObjects.forEach((obj) => canvas.remove(obj));
+    const grouped = new fabric.Group(activeObjects, {});
+    canvas.add(grouped);
+    if (typeof canvas.moveTo === 'function' && targetIndex !== null && Number.isFinite(targetIndex)) {
+      canvas.moveTo(grouped, targetIndex);
+    }
+    if (typeof canvas.setActiveObject === 'function') {
+      canvas.setActiveObject(grouped);
+    }
+    return grouped;
+  };
+
+  const createUngroupFromActiveGroup = (groupObj, canvas) => {
+    if (!groupObj || groupObj.type !== 'group') return null;
+
+    const childObjects = [...(groupObj._objects || groupObj.getObjects?.() || [])].filter(Boolean);
+    if (!childObjects.length) {
+      canvas.discardActiveObject();
+      canvas.remove(groupObj);
+      return [];
+    }
+
+    const allObjects = canvas.getObjects ? canvas.getObjects() : [];
+    const insertionIndex = allObjects.indexOf(groupObj);
+    canvas.discardActiveObject();
+    canvas.remove(groupObj);
+
+    const restoredObjects = [];
+    childObjects.forEach((obj) => {
+      if (obj) {
+        if (typeof groupObj.exitGroup === 'function') {
+          groupObj.exitGroup(obj, false);
+        } else if (typeof groupObj._exitGroup === 'function') {
+          groupObj._exitGroup(obj, false);
+        }
+        if (typeof obj._set === 'function') {
+          obj._set('canvas', canvas);
+          obj._set('parent', undefined);
+        } else {
+          obj.canvas = canvas;
+          obj.parent = undefined;
+        }
+        if (typeof canvas.add === 'function' && !canvas.contains?.(obj)) {
+          canvas.add(obj);
+        }
+        restoredObjects.push(obj);
+      }
+    });
+
+    if (typeof canvas.moveTo === 'function' && insertionIndex >= 0 && restoredObjects.length > 0) {
+      restoredObjects.forEach((obj, idx) => {
+        canvas.moveTo(obj, insertionIndex + idx);
+      });
+    }
+
+    if (typeof canvas.setActiveObject === 'function') {
+      if (restoredObjects.length > 1) {
+        setActiveObjectOrSelection(restoredObjects);
+      } else {
+        canvas.setActiveObject(restoredObjects[0]);
+      }
+    }
+
+    return restoredObjects;
+  };
+
+  const expandGroupToSelection = (groupObj, canvas) => {
+    if (!groupObj || groupObj.type !== 'group') return false;
+
+    if (typeof groupObj.toActiveSelection === 'function') {
+      try {
+        groupObj.toActiveSelection();
+        return true;
+      } catch (error) {
+        console.warn('[SelectionFlow] group toActiveSelection failed, fallback ungroup', {
+          groupId: groupObj.id || null,
+          message: error?.message || String(error),
+        });
+      }
+    }
+
+    createUngroupFromActiveGroup(groupObj, canvas);
+    return true;
+  };
 
   const syncArtboardPattern = useCallback(() => {
     const canvas = fabricCanvas.current;
@@ -816,7 +923,9 @@ const rawMap = config.workflow_map;
       targets.forEach((obj) => ensureRectRoundControls(obj));
       syncUI();
     });
-    canvas.on('selection:cleared', syncUI);
+    canvas.on('selection:cleared', () => {
+      syncUI();
+    });
     canvas.on('after:render', drawMaskOverlay);
 
     // Zoom & Pan
@@ -970,6 +1079,7 @@ const rawMap = config.workflow_map;
     };
 
     let suppressNextNativeContextMenu = false;
+    let rightClickRestoreTimer = null;
 
     const handleMouseDown = (opt) => {
       const button = Number.isFinite(opt?.button) ? opt.button : undefined;
@@ -1083,10 +1193,54 @@ const rawMap = config.workflow_map;
         canvas.lastPosY = opt.e.clientY;
         canvas.upperCanvasEl.style.cursor = 'grabbing';
       }
+      const activeObject = canvas.getActiveObject();
+      const activeSelectionTargets = canvas.getActiveObjects
+        ? canvas.getActiveObjects().filter((obj) => obj && obj.id !== 'world-bounds')
+        : [];
+      const multiSelectionCount = activeSelectionTargets.length;
+      const isRightTargetInActiveSelection = multiSelectionCount > 1
+        && resolvedRightTarget
+        && (
+          resolvedRightTarget === activeObject
+          || isActiveSelectionType(resolvedRightTarget)
+          || activeSelectionTargets.includes(resolvedRightTarget)
+        );
+
       if (isRightButton && resolvedRightTarget) {
         opt.e?.preventDefault?.();
         opt.e?.stopPropagation?.();
-        canvas.setActiveObject(resolvedRightTarget);
+        if (isRightTargetInActiveSelection) {
+          const selectedIds = activeSelectionTargets
+            .map((obj) => obj?.id)
+            .filter(Boolean);
+          if (selectedIds.length > 1) {
+            rightClickActiveSelectionIdsRef.current = selectedIds;
+            const restoreEpoch = ++rightClickSelectionEpochRef.current;
+            if (rightClickRestoreTimer) {
+              window.clearTimeout(rightClickRestoreTimer);
+            }
+            rightClickRestoreTimer = window.setTimeout(() => {
+              if (rightClickSelectionEpochRef.current !== restoreEpoch) {
+                return;
+              }
+              const currentActive = canvas.getActiveObjects ? canvas.getActiveObjects() : [];
+              const currentActiveIds = currentActive.map((obj) => obj?.id).filter(Boolean);
+              const hasMissingSelection = selectedIds.some((id) => !currentActiveIds.includes(id)) || currentActive.length <= 1;
+              if (!hasMissingSelection) {
+                return;
+              }
+              const restoredTargets = selectedIds
+                .map((id) => canvas.getObjects().find((obj) => obj?.id === id))
+                .filter((obj) => Boolean(obj) && obj.id !== 'world-bounds');
+              if (restoredTargets.length > 1) {
+                setActiveObjectOrSelection(restoredTargets);
+                syncUI();
+              }
+            }, 0);
+          }
+        } else {
+          canvas.setActiveObject(resolvedRightTarget);
+        }
         setContextMenu({ x: opt.e.clientX, y: opt.e.clientY, target: resolvedRightTarget });
         suppressNextNativeContextMenu = true;
         window.setTimeout(() => {
@@ -1154,16 +1308,27 @@ const rawMap = config.workflow_map;
         .slice()
         .reverse()
         .find((obj) => obj.id !== 'world-bounds' && obj.containsPoint(scenePointer));
+      const activeObject = canvas.getActiveObject();
+      const activeSelectionTargets = canvas.getActiveObjects
+        ? canvas.getActiveObjects().filter((obj) => obj && obj.id !== 'world-bounds')
+        : [];
+      const isMultiSelecting = activeSelectionTargets.length > 1;
+      const targetToSet = isMultiSelecting
+        && (target === activeObject || isActiveSelectionType(target) || activeSelectionTargets.includes(target))
+        ? activeObject
+        : target;
 
       e.preventDefault();
       e.stopPropagation();
 
-      if (!target) {
+      if (!targetToSet) {
         setContextMenu(null);
         return;
       }
-      canvas.setActiveObject(target);
-      setContextMenu({ x: e.clientX, y: e.clientY, target });
+      if (!activeObject || !isActiveSelectionType(activeObject) || activeObject !== targetToSet) {
+        canvas.setActiveObject(targetToSet);
+      }
+      setContextMenu({ x: e.clientX, y: e.clientY, target: targetToSet });
     };
 
     canvas.upperCanvasEl.addEventListener('contextmenu', handleCanvasContextMenu);
@@ -1252,6 +1417,9 @@ const rawMap = config.workflow_map;
       canvas.off('mouse:down', handleMouseDown);
       canvas.off('mouse:up', handleMouseUp);
       canvas.upperCanvasEl.removeEventListener('mouseleave', hideEraserCursor);
+      if (rightClickRestoreTimer) {
+        window.clearTimeout(rightClickRestoreTimer);
+      }
       if (fabricCanvas.current) {
         fabricCanvas.current.dispose();
         fabricCanvas.current = null;
@@ -1269,28 +1437,93 @@ const rawMap = config.workflow_map;
   }, []);
 
   // --- Core Methods ---
+  const setActiveObjectOrSelection = (objects) => {
+    const canvas = fabricCanvas.current;
+    if (!canvas) return;
+
+    const targets = (objects || []).filter((obj) => obj && obj.id !== 'world-bounds');
+    if (targets.length === 0) {
+      canvas.discardActiveObject();
+      return;
+    }
+
+    if (targets.length === 1) {
+      canvas.discardActiveObject();
+      canvas.setActiveObject(targets[0]);
+      return;
+    }
+
+    if (typeof fabric.ActiveSelection === 'undefined') {
+      canvas.discardActiveObject();
+      canvas.setActiveObject(targets[0]);
+      return;
+    }
+
+    const selection = new fabric.ActiveSelection(targets, { canvas });
+    canvas.discardActiveObject();
+    canvas.setActiveObject(selection);
+  };
+
   const groupSelected = () => {
     const canvas = fabricCanvas.current;
     const activeSelection = canvas.getActiveObject();
-    if (!activeSelection || activeSelection.type !== 'activeSelection') return;
-    activeSelection.toGroup();
+    const activeObjects = (canvas.getActiveObjects ? canvas.getActiveObjects() : []).filter((obj) => obj.id !== 'world-bounds');
+    if (!activeSelection || (!isActiveSelectionType(activeSelection) && activeObjects.length < 2)) {
+      return;
+    }
+
+    const grouped = createGroupFromActiveObjects(canvas);
+    if (!grouped) {
+      return;
+    }
+
     canvas.requestRenderAll();
+    syncUI();
   };
 
   const ungroupSelected = () => {
     const canvas = fabricCanvas.current;
     const activeGroup = canvas.getActiveObject();
     if (!activeGroup || activeGroup.type !== 'group') return;
-    activeGroup.toActiveSelection();
+    expandGroupToSelection(activeGroup, canvas);
     canvas.requestRenderAll();
+    syncUI();
   };
 
   const applyContextTargetAsActive = (target) => {
     const canvas = fabricCanvas.current;
     if (!canvas || !target) return;
-    if (!canvas.getActiveObject || canvas.getActiveObject() === target) return;
-    canvas.discardActiveObject();
-    canvas.setActiveObject(target);
+    if (!canvas.getActiveObject) return;
+
+    const activeObjects = (canvas.getActiveObjects ? canvas.getActiveObjects() : []);
+    const alreadySelected = activeObjects.includes(target);
+    if (!alreadySelected) {
+      canvas.discardActiveObject();
+      canvas.setActiveObject(target);
+    }
+  };
+
+  const handleLayerRowClick = (event, target) => {
+    const canvas = fabricCanvas.current;
+    if (!canvas || !target || target.id === 'world-bounds') return;
+
+    const isMultiSelect = event && (event.ctrlKey || event.metaKey || event.shiftKey);
+    const activeObjects = (canvas.getActiveObjects ? canvas.getActiveObjects() : []).filter((obj) => obj.id !== 'world-bounds');
+    const hasTarget = activeObjects.includes(target);
+
+    if (!isMultiSelect) {
+      if (activeObjects.length === 1 && activeObjects[0] === target) {
+        return;
+      }
+      setActiveObjectOrSelection([target]);
+    } else if (hasTarget) {
+      setActiveObjectOrSelection(activeObjects.filter((obj) => obj !== target));
+    } else {
+      setActiveObjectOrSelection([...activeObjects, target]);
+    }
+
+    canvas.requestRenderAll();
+    syncUI();
   };
 
   const closeContextMenu = () => setContextMenu(null);
@@ -1389,11 +1622,16 @@ const rawMap = config.workflow_map;
     if (!canvas) return;
     const active = canvas.getActiveObject();
     const activeCount = (canvas.getActiveObjects ? canvas.getActiveObjects() : []).filter((obj) => obj.id !== 'world-bounds').length;
-    if (!active || active.type !== 'activeSelection' || activeCount < 2) {
+    if (!active || !isActiveSelectionType(active) || activeCount < 2) {
       closeContextMenu();
       return;
     }
-    active.toGroup();
+
+    const grouped = createGroupFromActiveObjects(canvas);
+    if (!grouped) {
+      closeContextMenu();
+      return;
+    }
     canvas.requestRenderAll();
     syncUI();
     closeContextMenu();
@@ -1407,7 +1645,7 @@ const rawMap = config.workflow_map;
       closeContextMenu();
       return;
     }
-    active.toActiveSelection();
+    expandGroupToSelection(active, canvas);
     canvas.requestRenderAll();
     syncUI();
     closeContextMenu();
@@ -1533,7 +1771,7 @@ const rawMap = config.workflow_map;
     const hasCustomSize = Number.isFinite(widthInput) && widthInput > 0 && Number.isFinite(heightInput) && heightInput > 0;
     let dataURL = null;
 
-    const isActiveSelection = activeObject?.type?.toLowerCase() === 'activeselection';
+    const isActiveSelection = isActiveSelectionType(activeObject);
 
     if (isActiveSelection) {
       try {
@@ -2285,9 +2523,6 @@ const rawMap = config.workflow_map;
         .map((p) => [Math.round(p.x), Math.round(p.y)]);
       const labels = points.map(() => 1);
 
-      console.log('===== [SAM 3 Debug] =====');
-      console.log('Point count:', points.length);
-
       // 3. Export clean image (no scale/angle)
       active.set({ angle: 0, scaleX: 1, scaleY: 1 });
       const dataURL = active.toDataURL({ format: 'png' });
@@ -2597,7 +2832,6 @@ const rawMap = config.workflow_map;
           dragCounter.current = 0;
 
           const files = e.dataTransfer.files;
-          console.log('Files dropped:', files.length);
           if (files && files.length > 0) {
             const imageFiles = Array.from(files).filter((file) => file.type.startsWith('image/'));
             if (imageFiles.length === 0) return;
@@ -2690,8 +2924,8 @@ const rawMap = config.workflow_map;
       {/* Control Panel */}
       <aside className="control-panel">
         <div className="panel-tabs">
-          <button className={`panel-tab ${activePanelTab === 'properties' ? 'active' : ''}`} onClick={() => setActivePanelTab('properties')}>Properties</button>          
           <button className={`panel-tab ${activePanelTab === 'layers' ? 'active' : ''}`} onClick={() => setActivePanelTab('layers')}>Layers</button>
+          <button className={`panel-tab ${activePanelTab === 'properties' ? 'active' : ''}`} onClick={() => setActivePanelTab('properties')}>Properties</button>                    
           <button className={`panel-tab ${activePanelTab === 'library' ? 'active' : ''}`} onClick={() => setActivePanelTab('library')}>Library</button>
         </div>
 
@@ -3081,7 +3315,7 @@ const rawMap = config.workflow_map;
                     setDraggedLayerIndex(null);
                     setDragOverIndex(null);
                   }}
-                  onClick={() => { fabricCanvas.current.setActiveObject(l.object); fabricCanvas.current.requestRenderAll(); }}
+                  onClick={(e) => handleLayerRowClick(e, l.object)}
                 >
                   <div className="l-order-btns">
                     <button onClick={(e) => { e.stopPropagation(); reorderLayer(l.object, 'up'); }}><ChevronUp size={12} /></button>
