@@ -424,11 +424,27 @@ def apply_images_to_workflow(workflow: dict, image_filenames: List[str]) -> int:
     if not fields:
         return 0
 
-    mapped_count = 0
-    for filename, (node_id, key, inputs) in zip(image_filenames, fields):
-        filename = str(filename).strip()
-        if not filename:
+    normalized_filenames = []
+    for filename in image_filenames:
+        if not isinstance(filename, str):
             continue
+        cleaned = filename.strip()
+        if cleaned:
+            normalized_filenames.append(cleaned)
+
+    if not normalized_filenames:
+        return 0
+
+    mapped_count = 0
+    if len(normalized_filenames) == 1:
+        single_filename = normalized_filenames[0]
+        for node_id, key, inputs in fields:
+            inputs[key] = single_filename
+            mapped_count += 1
+            print(f"[generate-image] mapped source image '{single_filename}' -> node {node_id} field {key}")
+        return mapped_count
+
+    for filename, (node_id, key, inputs) in zip(normalized_filenames, fields):
         inputs[key] = filename
         mapped_count += 1
         print(f"[generate-image] mapped source image '{filename}' -> node {node_id} field {key}")
