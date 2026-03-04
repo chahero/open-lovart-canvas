@@ -5,7 +5,7 @@ import {
   MoreHorizontal, Sparkles, Scissors, Target, Edit3, RotateCcw, AlertTriangle, Link2, Unlink2,
   RotateCw, Search, Hand, AlignLeft, AlignCenter,
   AlignRight, AlignVerticalJustifyStart, AlignVerticalJustifyCenter,
-  AlignVerticalJustifyEnd, Group, Ungroup, Bold, Italic, Type as TypeIcon,
+  AlignVerticalJustifyEnd, Group, Ungroup, Bold, Italic, Type as TypeIcon, Play,
   ChevronUp, ChevronDown
 } from 'lucide-react';
 import * as fabric from 'fabric';
@@ -167,6 +167,9 @@ const App = () => {
   const [exportHeight, setExportHeight] = useState('');
   const [exportKeepAspect, setExportKeepAspect] = useState(true);
   const [exportAspectRatio, setExportAspectRatio] = useState(1);
+  const [showVideoPlayerModal, setShowVideoPlayerModal] = useState(false);
+  const [videoPlayerSource, setVideoPlayerSource] = useState('');
+  const [videoPlayerTitle, setVideoPlayerTitle] = useState('');
   const [settingsOptions, setSettingsOptions] = useState({
     workflows: [],
     ocrModels: [],
@@ -333,6 +336,8 @@ const rawMap = config.workflow_map;
         brightness: activeObj.filters?.find(f => f.type === 'Brightness')?.brightness || 0,
         contrast: activeObj.filters?.find(f => f.type === 'Contrast')?.contrast || 0,
         grayscale: activeObj.filters?.some(f => f.type === 'Grayscale') || false,
+        mediaType: activeObj.mediaType || '',
+        mediaSource: activeObj.mediaSource || '',
       });
     } else {
       setSelectedObject(null);
@@ -1743,7 +1748,7 @@ const rawMap = config.workflow_map;
     const rawCanvasObjects = (canvas.getObjects ? canvas.getObjects() : []);
     const serializedObjects = rawCanvasObjects
       .filter((obj) => obj && !isWorldBoundsObject(obj))
-      .map((obj) => obj.toObject(['id', 'name', 'originalWidth', 'originalHeight', 'isWorldBounds']));
+      .map((obj) => obj.toObject(['id', 'name', 'originalWidth', 'originalHeight', 'isWorldBounds', 'mediaType', 'mediaSource']));
     const { objects: saveObjects } = buildProjectObjects(serializedObjects);
     const objectsWithId = saveObjects.filter((obj) => obj && obj.id);
     const objectsWithoutId = saveObjects.filter((obj) => obj && !obj.id);
@@ -3250,6 +3255,28 @@ const rawMap = config.workflow_map;
     }
   };
 
+  const openSelectedVideoPlayer = () => {
+    const canvas = fabricCanvas.current;
+    const active = canvas?.getActiveObject?.();
+    if (!active) return;
+    const isVideoImage =
+      (active.type === 'FabricImage' || active.type === 'image') &&
+      active.mediaType === 'video' &&
+      typeof active.mediaSource === 'string' &&
+      active.mediaSource.length > 0;
+    if (!isVideoImage) return;
+
+    setVideoPlayerTitle(active.name || 'Video');
+    setVideoPlayerSource(active.mediaSource);
+    setShowVideoPlayerModal(true);
+  };
+
+  const closeVideoPlayerModal = () => {
+    setShowVideoPlayerModal(false);
+    setVideoPlayerSource('');
+    setVideoPlayerTitle('');
+  };
+
   const applyImageFilter = (type, val) => {
     const obj = fabricCanvas.current.getActiveObject();
     if (!obj || obj.type !== 'FabricImage') return;
@@ -3360,6 +3387,7 @@ const rawMap = config.workflow_map;
   const selectedIsText = selectedObject?.type === 'i-text' || selectedObject?.type === 'text';
   const selectedIsShape = selectedObject?.type === 'rect' || selectedObject?.type === 'circle' || selectedObject?.type === 'ellipse';
   const selectedIsImage = selectedObject?.type === 'FabricImage' || selectedObject?.type === 'image';
+  const selectedIsVideo = selectedIsImage && selectedObject?.mediaType === 'video' && !!selectedObject?.mediaSource;
   const hasMaskData = maskStrokes.length > 0;
   const maskPointCount = maskStrokes.reduce((sum, stroke) => sum + (stroke.points?.length || 0), 0);
 
@@ -3788,6 +3816,14 @@ const rawMap = config.workflow_map;
                   {activePropsTab === 'image' && selectedIsImage && (
                     <div className="image-tools">
                       <div className="props-action-list">
+                        {selectedIsVideo && (
+                          <button
+                            className="action-tag"
+                            onClick={openSelectedVideoPlayer}
+                          >
+                            <Play size={14} /> Play Video
+                          </button>
+                        )}
                         <button
                           className="action-tag"
                           onClick={() => setShowRemoveBgConfirm(true)}
@@ -3893,11 +3929,14 @@ const rawMap = config.workflow_map;
               <div className="no-selection-msg">No saved assets yet</div>
             ) : (
               <div className="library-grid">
-                {assetLibrary.map((asset) => (
-                  <div
-                    key={asset.id}
-                    className="library-card"
-                  >
+                {assetLibrary.map((asset) => {
+                  const isVideoAsset = String(asset?.content_type || '').toLowerCase().startsWith('video/');
+                  return (
+                    <div
+                      key={asset.id}
+                      className="library-card"
+                    >
+                      {isVideoAsset && <div className="library-media-badge">VIDEO</div>}
                       <button
                         className="library-insert-btn"
                         onClick={() => addImageFromAsset(asset)}
@@ -3925,7 +3964,7 @@ const rawMap = config.workflow_map;
                       <Trash2 size={12} />
                     </button>
                   </div>
-                ))}
+                )})}
               </div>
             )}
           </div>
@@ -4205,6 +4244,40 @@ const rawMap = config.workflow_map;
             <div className="modal-actions">
               <button className="modal-btn confirm danger" onClick={() => setShowAiValidationModal(false)}>
                 OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showVideoPlayerModal && videoPlayerSource && (
+        <div className="modal-overlay" onClick={closeVideoPlayerModal}>
+          <div
+            className="confirm-modal"
+            style={{ maxWidth: 860, width: 'min(92vw, 860px)', alignItems: 'stretch' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-text" style={{ textAlign: 'left' }}>
+              <h3>{videoPlayerTitle || 'Video Preview'}</h3>
+              <p>Video playback is available in modal preview.</p>
+            </div>
+            <video
+              key={videoPlayerSource}
+              src={videoPlayerSource}
+              controls
+              autoPlay
+              playsInline
+              style={{
+                width: '100%',
+                maxHeight: '70vh',
+                borderRadius: 12,
+                background: '#000',
+                border: '1px solid rgba(148, 163, 184, 0.4)'
+              }}
+            />
+            <div className="modal-actions">
+              <button className="modal-btn confirm" onClick={closeVideoPlayerModal}>
+                Close
               </button>
             </div>
           </div>
