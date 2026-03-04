@@ -69,6 +69,26 @@ SERVER_PORT=8002
 FRONTEND_URL=http://localhost:5173
 ```
 
+## Preparing SAM3 model (`sam3.pt`)
+
+The segmentation endpoint (`/segment`) requires a SAM3 checkpoint file.
+
+1. Request access to SAM3 on Hugging Face first.
+   - https://huggingface.co/facebook/sam3
+2. Create the `server/models` directory.
+3. Download the SAM3 checkpoint you use with Ultralytics.
+4. Rename/place it as `server/models/sam3.pt`.
+5. Set the path in `server/.env`.
+
+```env
+SAM3_MODEL_PATH=models/sam3.pt
+```
+
+Notes:
+- The default path in code is `models/sam3.pt`.
+- If not found, the backend also checks a legacy path at `server/sam3.pt`.
+- If model initialization fails at startup, verify filename and path first.
+
 ## Project Status
 
 - The project is actively evolving.

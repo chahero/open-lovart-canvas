@@ -68,6 +68,25 @@ SERVER_PORT=8002
 FRONTEND_URL=http://localhost:5173
 ```
 
+## SAM3 모델(`sam3.pt`) 준비
+
+세그멘테이션 기능(`/segment`)을 사용하려면 SAM3 가중치 파일이 필요합니다.
+
+1. 먼저 Hugging Face에서 SAM3 접근 승인을 받습니다.
+   - https://huggingface.co/facebook/sam3
+2. `server/models` 폴더를 생성합니다.
+3. 사용 중인 Ultralytics SAM3 체크포인트 파일을 다운로드합니다.
+4. 파일명을 `sam3.pt`로 맞춰 `server/models/sam3.pt`에 배치합니다.
+4. `server/.env`에 경로를 지정합니다.
+
+```env
+SAM3_MODEL_PATH=models/sam3.pt
+```
+
+참고:
+- 코드 기본 경로는 `models/sam3.pt`이며, 없으면 `server/sam3.pt`도 레거시 경로로 확인합니다.
+- 서버 시작 시 모델 초기화 실패 로그가 나오면 경로/파일명을 먼저 확인하세요.
+
 ## 프로젝트 상태
 
 - 현재 기능은 계속 개선 중입니다.
