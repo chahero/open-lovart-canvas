@@ -885,11 +885,22 @@ const rawMap = config.workflow_map;
       top: 0,
       width: WORLD_CANVAS_WIDTH,
       height: WORLD_CANVAS_HEIGHT,
-      fill: 'rgba(255,255,255,0)',
+      fill: 'transparent',
       stroke: 'transparent',
       strokeWidth: 0,
+      visible: false,
       selectable: false,
       evented: false,
+      hasControls: false,
+      hasBorders: false,
+      lockMovementX: true,
+      lockMovementY: true,
+      lockScalingX: true,
+      lockScalingY: true,
+      lockRotation: true,
+      excludeFromExport: true,
+      isWorldBounds: true,
+      name: 'world-bounds',
       id: 'world-bounds',
     });
     canvas.add(worldBounds);
@@ -1797,6 +1808,26 @@ const rawMap = config.workflow_map;
 
   const PROJECT_FILE_VERSION = '2.0';
 
+  const handleProjectNew = () => {
+    setShowProjectMenu(false);
+    const canvas = fabricCanvas.current;
+    if (!canvas) return;
+
+    const removableObjects = (canvas.getObjects ? canvas.getObjects() : []).filter((obj) => !isWorldBoundsObject(obj));
+    removableObjects.forEach((obj) => canvas.remove(obj));
+    canvas.discardActiveObject();
+    ensureWorldBounds(canvas);
+    canvas.requestRenderAll();
+
+    setAiPrompt('');
+    setShowAiInput(false);
+    setSegmentTarget(null);
+    setShowSegmentModal(false);
+    setShowRemoveBgConfirm(false);
+    clearMarks();
+    syncUI();
+  };
+
   const handleProjectSave = () => {
     setShowProjectMenu(false);
     const canvas = fabricCanvas.current;
@@ -1880,15 +1911,28 @@ const rawMap = config.workflow_map;
     const existing = canvas.getObjects().find((obj) => isWorldBoundsObject(obj));
     if (existing) {
       existing.set({
+        left: 0,
+        top: 0,
+        width: WORLD_CANVAS_WIDTH,
+        height: WORLD_CANVAS_HEIGHT,
         id: 'world-bounds',
         name: 'world-bounds',
         isWorldBounds: true,
+        fill: 'transparent',
         selectable: false,
         evented: false,
-        stroke: '#d9d9d9',
-        strokeWidth: 1,
+        hasControls: false,
+        hasBorders: false,
+        lockMovementX: true,
+        lockMovementY: true,
+        lockScalingX: true,
+        lockScalingY: true,
+        lockRotation: true,
+        excludeFromExport: true,
+        stroke: 'transparent',
+        strokeWidth: 0,
         strokeUniform: false,
-        visible: true,
+        visible: false,
       });
       if (typeof canvas.sendObjectToBack === 'function') {
         canvas.sendObjectToBack(existing);
@@ -1903,18 +1947,25 @@ const rawMap = config.workflow_map;
     }
 
     const worldBounds = new fabric.Rect({
-      left: -WORLD_CANVAS_WIDTH / 2,
-      top: -WORLD_CANVAS_HEIGHT / 2,
+      left: 0,
+      top: 0,
       width: WORLD_CANVAS_WIDTH,
       height: WORLD_CANVAS_HEIGHT,
       fill: 'transparent',
-      stroke: '#d9d9d9',
-      strokeWidth: 1,
+      stroke: 'transparent',
+      strokeWidth: 0,
       strokeUniform: false,
+      visible: false,
       selectable: false,
       evented: false,
       hasControls: false,
       hasBorders: false,
+      lockMovementX: true,
+      lockMovementY: true,
+      lockScalingX: true,
+      lockScalingY: true,
+      lockRotation: true,
+      excludeFromExport: true,
       isWorldBounds: true,
       name: 'world-bounds',
       id: 'world-bounds',
@@ -3307,6 +3358,21 @@ const rawMap = config.workflow_map;
       <header className="topbar">
         <div className="topbar-left">
           <h2 className="brand-title">OPEN LOVART</h2>
+          <div className="topbar-menu-wrap" ref={topbarMenuRef}>
+            <button
+              className="action-tag"
+              onClick={() => setShowProjectMenu((prev) => !prev)}
+            >
+              <MoreHorizontal size={14} /> File
+            </button>
+            {showProjectMenu && (
+              <div className="topbar-menu">
+                <button type="button" className="topbar-menu-item" onClick={handleProjectNew}>New Project</button>
+                <button type="button" className="topbar-menu-item" onClick={handleProjectSave}>Save Project</button>
+                <button type="button" className="topbar-menu-item" onClick={handleProjectLoad}>Load Project</button>
+              </div>
+            )}
+          </div>
         </div>
         <div className="topbar-actions">
             {aiModeConfig.map((mode) => (
@@ -3330,24 +3396,10 @@ const rawMap = config.workflow_map;
             ))}
         </div>
         <div className="topbar-right">
-          <div className="topbar-menu-wrap" ref={topbarMenuRef}>
-            <button
-              className="action-tag"
-              onClick={() => setShowProjectMenu((prev) => !prev)}
-            >
-              <MoreHorizontal size={14} /> Project
-            </button>
-            {showProjectMenu && (
-              <div className="topbar-menu">
-                <button type="button" className="topbar-menu-item" onClick={handleProjectSave}>Save Project</button>
-                <button type="button" className="topbar-menu-item" onClick={handleProjectLoad}>Load Project</button>
-              </div>
-            )}
-          </div>
           <button className="action-tag" onClick={() => { setActiveSettingsTab('comfyui'); setShowSettingsModal(true); }}>
             <Settings size={14} /> Settings
           </button>
-          <button className="action-tag" onClick={openExportOptions}>
+          <button className="action-tag topbar-primary-action" onClick={openExportOptions}>
             <Download size={14} /> Export
           </button>
         </div>

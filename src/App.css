@@ -141,7 +141,8 @@ body {
 .topbar-left {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 10px;
+  min-width: max-content;
 }
 
 .brand-title {
@@ -162,6 +163,10 @@ body {
 
 .topbar-actions {
   display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-width: 0;
   gap: 8px;
   background: transparent;
   padding: 0;
@@ -172,6 +177,7 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: max-content;
 }
 
 .topbar-menu-wrap {
@@ -337,6 +343,18 @@ body {
 
 .action-tag.active:hover {
   background: #e6edff;
+}
+
+.topbar-primary-action {
+  border-color: rgba(99, 102, 241, 0.55);
+  background: linear-gradient(180deg, #eef2ff, #e6edff);
+  color: #312e81;
+}
+
+.topbar-primary-action:hover {
+  border-color: rgba(79, 70, 229, 0.75);
+  background: linear-gradient(180deg, #e6edff, #dbe7ff);
+  color: #1e1b4b;
 }
 
 .primary-btn {
