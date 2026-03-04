@@ -786,16 +786,30 @@ async def upload_asset(
     name: str = Form(""),
 ):
     try:
-        if not file.content_type or not file.content_type.startswith("image/"):
-            raise HTTPException(status_code=400, detail="Only image files can be added to library.")
+        content_type = str(file.content_type or "").lower()
+        is_image_file = content_type.startswith("image/")
+        is_video_file = content_type.startswith("video/")
+        if not is_image_file and not is_video_file:
+            raise HTTPException(status_code=400, detail="Only image or video files can be added to library.")
 
         raw = await file.read()
         if not raw:
             raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
         ext = os.path.splitext(file.filename or "")[1].lower()
-        if ext not in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"]:
-            ext = ".png"
+        if is_image_file:
+            if ext not in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"]:
+                ext = ".png"
+        else:
+            if ext not in [".mp4", ".webm", ".mov", ".m4v", ".avi", ".mkv", ".ogv"]:
+                if "webm" in content_type:
+                    ext = ".webm"
+                elif "quicktime" in content_type:
+                    ext = ".mov"
+                elif "ogg" in content_type:
+                    ext = ".ogv"
+                else:
+                    ext = ".mp4"
 
         asset_id = uuid.uuid4().hex
         saved_name = f"{asset_id}{ext}"
@@ -804,11 +818,12 @@ async def upload_asset(
             out.write(raw)
 
         width, height = None, None
-        try:
-            with Image.open(io.BytesIO(raw)) as img:
-                width, height = img.size
-        except Exception:
-            pass
+        if is_image_file:
+            try:
+                with Image.open(io.BytesIO(raw)) as img:
+                    width, height = img.size
+            except Exception:
+                pass
 
         item = {
             "id": asset_id,
@@ -818,7 +833,7 @@ async def upload_asset(
             "created_at": int(time.time() * 1000),
             "filename": saved_name,
             "url": f"/assets/files/{saved_name}",
-            "content_type": file.content_type,
+            "content_type": content_type,
             "width": width,
             "height": height,
         }

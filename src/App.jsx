@@ -731,23 +731,141 @@ const rawMap = config.workflow_map;
     }
   };
 
-  const saveSelectedImageToLibrary = async () => {
+  const createVideoPosterDataFromSource = (mediaSource, revokeOnFinish = false) => new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.preload = 'auto';
+    video.muted = true;
+    video.playsInline = true;
+    video.crossOrigin = 'anonymous';
+    video.src = mediaSource;
+    let settled = false;
+
+    const cleanup = () => {
+      settled = true;
+      video.onloadedmetadata = null;
+      video.onloadeddata = null;
+      video.onseeked = null;
+      video.onerror = null;
+      if (revokeOnFinish) {
+        try { URL.revokeObjectURL(mediaSource); } catch (_) { /* noop */ }
+      }
+    };
+
+    const captureFrame = () => {
+      if (settled) return;
+      try {
+        const width = Math.max(1, video.videoWidth || 1);
+        const height = Math.max(1, video.videoHeight || 1);
+        const posterCanvas = document.createElement('canvas');
+        posterCanvas.width = width;
+        posterCanvas.height = height;
+        const ctx = posterCanvas.getContext('2d');
+        if (!ctx) throw new Error('Could not create video poster canvas.');
+        ctx.drawImage(video, 0, 0, width, height);
+        const posterDataUrl = posterCanvas.toDataURL('image/png');
+        cleanup();
+        resolve({ posterDataUrl, mediaSource });
+      } catch (error) {
+        cleanup();
+        reject(error);
+      }
+    };
+
+    video.onloadedmetadata = () => {
+      if (settled) return;
+      const duration = Number.isFinite(video.duration) ? video.duration : 0;
+      const seekTime = duration > 0.2 ? 0.12 : 0;
+      try {
+        if (seekTime > 0) {
+          video.currentTime = Math.min(seekTime, Math.max(0, duration - 0.05));
+          return;
+        }
+      } catch (_) {
+        // If seek fails, fallback to immediate capture.
+      }
+      captureFrame();
+    };
+
+    video.onseeked = captureFrame;
+    video.onloadeddata = captureFrame;
+    video.onerror = () => {
+      if (settled) return;
+      cleanup();
+      reject(new Error('Failed to decode video source.'));
+    };
+  });
+
+  const addVideoFromAsset = async (asset, dropPoint = null) => {
+    if (!asset?.url) return;
+    const canvas = fabricCanvas.current;
+    if (!canvas) return;
+
+    try {
+      const mediaSource = toAbsoluteAssetUrl(asset.url);
+      const { posterDataUrl } = await createVideoPosterDataFromSource(mediaSource, false);
+      const poster = await loadFabricImage(posterDataUrl);
+      poster.scaleToWidth(400);
+      poster.name = asset.name || 'Library Video';
+      poster.mediaType = 'video';
+      poster.mediaSource = mediaSource;
+      canvas.add(poster);
+      placeObjectAtDropOrCenter(canvas, poster, dropPoint);
+      canvas.setActiveObject(poster);
+      setActiveTool('select');
+      canvas.requestRenderAll();
+    } catch (err) {
+      console.error(err);
+      showNoticeModal('Library Error', 'Failed to insert video asset: ' + (err?.message || 'Unknown error.'));
+    }
+  };
+
+  const addAssetToCanvas = async (asset) => {
+    const contentType = String(asset?.content_type || '').toLowerCase();
+    if (contentType.startsWith('video/')) {
+      await addVideoFromAsset(asset);
+      return;
+    }
+    await addImageFromAsset(asset);
+  };
+
+  const saveSelectedAssetToLibrary = async () => {
     const canvas = fabricCanvas.current;
     const active = canvas?.getActiveObject();
     if (!active || (active.type !== 'FabricImage' && active.type !== 'image')) {
-      showNoticeModal('Library Error', 'Select an image layer first.');
+      showNoticeModal('Library Error', 'Select an image or video layer first.');
       return;
     }
 
     setIsLibrarySaving(true);
     try {
-      const dataURL = active.toDataURL({ format: 'png' });
-      const blob = await (await fetch(dataURL)).blob();
-      const fileName = `${(active.name || 'asset').replace(/[^a-z0-9-_]+/gi, '_')}.png`;
+      const isVideoLayer = active.mediaType === 'video' && typeof active.mediaSource === 'string' && active.mediaSource.length > 0;
+      const safeBaseName = (active.name || (isVideoLayer ? 'video' : 'asset')).replace(/[^a-z0-9-_]+/gi, '_');
+
+      let blob = null;
+      let fileName = `${safeBaseName}.png`;
+
+      if (isVideoLayer) {
+        const mediaResponse = await fetch(active.mediaSource);
+        if (!mediaResponse.ok) throw new Error('Failed to read selected video source.');
+        blob = await mediaResponse.blob();
+        const type = String(blob.type || '').toLowerCase();
+        const ext = type.includes('webm')
+          ? '.webm'
+          : type.includes('ogg')
+            ? '.ogv'
+            : type.includes('quicktime')
+              ? '.mov'
+              : '.mp4';
+        fileName = `${safeBaseName}${ext}`;
+      } else {
+        const dataURL = active.toDataURL({ format: 'png' });
+        blob = await (await fetch(dataURL)).blob();
+      }
+
       const formData = new FormData();
       formData.append('file', blob, fileName);
       formData.append('source', 'canvas');
-      formData.append('name', active.name || 'Canvas Asset');
+      formData.append('name', active.name || (isVideoLayer ? 'Canvas Video' : 'Canvas Image'));
 
       const response = await fetch(`${API_BASE_URL}/assets/upload`, {
         method: 'POST',
@@ -3868,10 +3986,10 @@ const rawMap = config.workflow_map;
             <div className="library-actions">
               <button
                 className="library-save-btn"
-                onClick={saveSelectedImageToLibrary}
+                onClick={saveSelectedAssetToLibrary}
                 disabled={isLibrarySaving || !(selectedObject?.type === 'FabricImage' || selectedObject?.type === 'image')}
               >
-                {isLibrarySaving ? 'Saving...' : 'Save Selected Image'}
+                {isLibrarySaving ? 'Saving...' : 'Save Selected Asset'}
               </button>
             </div>
             {isLibraryLoading ? (
@@ -3882,19 +4000,24 @@ const rawMap = config.workflow_map;
               <div className="library-grid">
                 {assetLibrary.map((asset) => {
                   const isVideoAsset = String(asset?.content_type || '').toLowerCase().startsWith('video/');
+                  const mediaLabel = isVideoAsset ? 'VIDEO' : 'IMAGE';
                   return (
                     <div
                       key={asset.id}
                       className="library-card"
                     >
-                      {isVideoAsset && <div className="library-media-badge">VIDEO</div>}
+                      <div className={`library-media-badge ${isVideoAsset ? 'video' : 'image'}`}>{mediaLabel}</div>
                       <button
                         className="library-insert-btn"
-                        onClick={() => addImageFromAsset(asset)}
+                        onClick={() => addAssetToCanvas(asset)}
                         title={getAssetDisplayName(asset.name)}
                       >
-                        <img src={toAbsoluteAssetUrl(asset.url)} alt={getAssetDisplayName(asset.name)} loading="lazy" />
-                        <span className="library-item-label">{getAssetDisplayName(asset.name)}</span>
+                        {isVideoAsset ? (
+                          <video src={toAbsoluteAssetUrl(asset.url)} muted playsInline preload="metadata" />
+                        ) : (
+                          <img src={toAbsoluteAssetUrl(asset.url)} alt={getAssetDisplayName(asset.name)} loading="lazy" />
+                        )}
+                        <span className="library-item-label">{`${mediaLabel} · ${getAssetDisplayName(asset.name)}`}</span>
                       </button>
                       <button
                         className="library-rename-btn"
