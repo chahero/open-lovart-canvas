@@ -863,7 +863,7 @@ const rawMap = config.workflow_map;
       stopContextMenu: true,
       skipOffscreen: false,
     });
-    canvas.uniformScaling = false;
+    canvas.uniformScaling = true;
     canvas.uniScaleKey = 'shiftKey';
 
     fabricCanvas.current = canvas;
