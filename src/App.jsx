@@ -4175,7 +4175,7 @@ const rawMap = config.workflow_map;
                             </div>
                           )}
                         </div>
-                        <span className="library-item-label">{`${mediaLabel} - ${getAssetDisplayName(asset.name)}`}</span>
+                        <span className="library-item-label">{getAssetDisplayName(asset.name)}</span>
                       </button>
                       <button
                         className="library-rename-btn"
