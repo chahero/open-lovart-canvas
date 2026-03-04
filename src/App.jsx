@@ -4019,7 +4019,7 @@ const rawMap = config.workflow_map;
                             <img src={toAbsoluteAssetUrl(asset.url)} alt={getAssetDisplayName(asset.name)} loading="lazy" />
                           )}
                           {isVideoAsset && (
-                            <div className="library-video-play-overlay" aria-hidden="true">
+                            <div className="library-video-play-overlay">
                               <div
                                 className="library-video-play-btn"
                                 role="button"
