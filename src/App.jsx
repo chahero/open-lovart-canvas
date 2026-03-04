@@ -323,6 +323,18 @@ const rawMap = config.workflow_map;
         grayscale: activeObj.filters?.some(f => f.type === 'Grayscale') || false,
         mediaType: activeObj.mediaType || '',
         mediaSource: activeObj.mediaSource || '',
+        displayWidth: Math.max(0, Math.round(
+          typeof activeObj.getScaledWidth === 'function'
+            ? activeObj.getScaledWidth()
+            : (activeObj.width || 0) * (activeObj.scaleX || 1)
+        )),
+        displayHeight: Math.max(0, Math.round(
+          typeof activeObj.getScaledHeight === 'function'
+            ? activeObj.getScaledHeight()
+            : (activeObj.height || 0) * (activeObj.scaleY || 1)
+        )),
+        sourceWidth: Math.max(0, Math.round(activeObj.width || 0)),
+        sourceHeight: Math.max(0, Math.round(activeObj.height || 0)),
       });
     } else {
       setSelectedObject(null);
@@ -3529,6 +3541,23 @@ const rawMap = config.workflow_map;
               <h3 className="section-label">Properties</h3>
               {selectedObject ? (
                 <div className="props-body">
+                  <div className="prop-input-group">
+                    <label>Size</label>
+                    <div className="modern-input-group size-readonly-row" style={{ justifyContent: 'space-between' }}>
+                      <span className="size-readonly-value">
+                        {`${selectedObject.displayWidth || 0} x ${selectedObject.displayHeight || 0}`}
+                      </span>
+                      <span className="range-value-pill">Display</span>
+                    </div>
+                    {selectedIsImage && (
+                      <div className="modern-input-group size-readonly-row" style={{ marginTop: 8, justifyContent: 'space-between' }}>
+                        <span className="size-readonly-value">
+                          {`${selectedObject.sourceWidth || 0} x ${selectedObject.sourceHeight || 0}`}
+                        </span>
+                        <span className="range-value-pill">Source</span>
+                      </div>
+                    )}
+                  </div>
                   <div className="prop-input-group">
                     <label>Opacity</label>
                     <div className="modern-input-group slider-control">

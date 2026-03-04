@@ -894,6 +894,20 @@ input[type=number] {
   text-align: center;
 }
 
+.size-readonly-value {
+  color: var(--bg-secondary);
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.size-readonly-row {
+  align-items: center;
+  min-height: 38px;
+  padding: 0 10px;
+}
+
 .range-value-pill {
   display: inline-flex;
   align-items: center;
