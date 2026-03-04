@@ -320,8 +320,9 @@ def apply_mode_specific_inputs(
         return {"prompt": False, "image_count": 0}
 
     changed_targets = {"prompt": False, "image_count": 0}
+    normalized_prompt = prompt.strip()
     selected_mode = str(mode or "t2i").lower()
-    is_i2i_mode = selected_mode in {"i2i", "i2i_single", "i2i_multi"}
+    is_i2i_mode = selected_mode in {"i2i", "i2i_single", "i2i_multi", "upscale"}
 
     source_images: List[str] = []
     if source_image_name:
@@ -336,16 +337,16 @@ def apply_mode_specific_inputs(
     if is_i2i_mode:
         if source_images:
             changed_targets["image_count"] = apply_images_to_workflow(workflow, source_images)
-        if apply_i2i_prompt(workflow, prompt):
+        if normalized_prompt and apply_i2i_prompt(workflow, prompt):
             changed_targets["prompt"] = True
         return changed_targets
 
     if selected_mode == "t2i":
-        if apply_t2i_prompt(workflow, prompt):
+        if normalized_prompt and apply_t2i_prompt(workflow, prompt):
             changed_targets["prompt"] = True
         return changed_targets
 
-    if apply_prompt_to_workflow(workflow, prompt):
+    if normalized_prompt and apply_prompt_to_workflow(workflow, prompt):
         changed_targets["prompt"] = True
     return changed_targets
 
@@ -1069,7 +1070,7 @@ async def analyze_vision(file: UploadFile = File(...), prompt: str = Form(...)):
 
 @app.post("/generate-image")
 async def generate_image(
-    prompt: str = Form(...),
+    prompt: str = Form(""),
     workflow: str = Form(default=""),
     mode: str = Form(default="t2i"),
     source_image: UploadFile = File(default=None),
@@ -1083,7 +1084,11 @@ async def generate_image(
         selected_mode = mode.strip().lower() if mode else "t2i"
         if selected_mode == "i2i":
             selected_mode = "i2i_single"
-        is_i2i_mode = selected_mode in {"i2i_single", "i2i_multi"}
+        is_i2i_mode = selected_mode in {"i2i_single", "i2i_multi", "upscale"}
+        normalized_prompt = prompt.strip() if isinstance(prompt, str) else ""
+
+        if selected_mode != "upscale" and not normalized_prompt:
+            raise HTTPException(status_code=400, detail="Prompt is required for this mode.")
 
         if not requested_workflow:
             requested_workflow = (WORKFLOW_MAP.get(selected_mode) if WORKFLOW_MAP else "")
@@ -1115,9 +1120,14 @@ async def generate_image(
             else:
                 multi_source_images = [source_image] if source_image else []
                 if not multi_source_images:
+                    detail_message = (
+                        "Upscale generation requires an image source. Select one image layer on canvas."
+                        if selected_mode == "upscale"
+                        else "I2I generation requires an image source. Select one image layer on canvas."
+                    )
                     raise HTTPException(
                         status_code=400,
-                        detail="I2I generation requires an image source. Select one image layer on canvas.",
+                        detail=detail_message,
                     )
 
             for source in multi_source_images:
@@ -1137,7 +1147,7 @@ async def generate_image(
             prompt,
             source_image_names=source_image_names,
         )
-        if not changed_targets["prompt"] and not apply_prompt_to_workflow(workflow_data, prompt):
+        if normalized_prompt and not changed_targets["prompt"] and not apply_prompt_to_workflow(workflow_data, prompt):
             print(f"[generate-image] Warning: could not find a recognized prompt target in workflow '{requested_workflow}'.")
 
         if is_i2i_mode:

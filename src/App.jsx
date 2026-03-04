@@ -190,6 +190,7 @@ const App = () => {
     { key: 't2i', label: 'T2I Generate' },
     { key: 'i2i_single', label: 'I2I (Single)' },
     { key: 'i2i_multi', label: 'I2I (Multi)' },
+    { key: 'upscale', label: 'Upscale' },
   ];
 
   const normalizeWorkflowMapFromConfig = (config = {}) => {
@@ -2779,7 +2780,7 @@ const rawMap = config.workflow_map;
     const selectedMode = mode === 'i2i' ? 'i2i_single' : mode;
 
     if (selectedMode === 'i2i_multi' && imageObjects.length < 2) return [];
-    if (selectedMode !== 'i2i_multi' && imageObjects.length < 1) return [];
+    if ((selectedMode === 'i2i_single' || selectedMode === 'upscale') && imageObjects.length < 1) return [];
     return imageObjects;
   };
 
@@ -2787,7 +2788,9 @@ const rawMap = config.workflow_map;
     const selectedMode = mode === 'i2i' ? 'i2i_single' : mode;
     return selectedMode === 'i2i_multi'
       ? 'I2I (Multi) generation requires at least 2 image layers selected.'
-      : 'I2I generation requires an image layer selected.';
+      : selectedMode === 'upscale'
+        ? 'Upscale generation requires an image layer selected.'
+        : 'I2I generation requires an image layer selected.';
   };
 
   const collectI2ISourceImageBlobs = async (mode = 'i2i_single') => {
@@ -2807,8 +2810,9 @@ const rawMap = config.workflow_map;
   };
 
   const generateAiImage = async (mode = 't2i') => {
-    if (!aiPrompt.trim()) return;
     const selectedMode = mode === 'i2i' ? 'i2i_single' : mode;
+    if (selectedMode !== 'upscale' && !aiPrompt.trim()) return;
+    const requiresImageSource = selectedMode.startsWith('i2i') || selectedMode === 'upscale';
     const showAiError = (title, message) => {
       setAiValidationTitle(title || 'AI Generation Error');
       setAiValidationMessage(message || 'An error occurred while generating image.');
@@ -2820,7 +2824,7 @@ const rawMap = config.workflow_map;
       const formData = new FormData();
       formData.append('prompt', aiPrompt);
 
-    if (selectedMode.startsWith('i2i')) {
+    if (requiresImageSource) {
       const blobs = await collectI2ISourceImageBlobs(selectedMode);
       if (!blobs.length) {
         showAiError('AI Generation Error', getI2IValidationErrorMessage(selectedMode));
@@ -2838,7 +2842,7 @@ const rawMap = config.workflow_map;
       }
     }
 
-      if (selectedMode.startsWith('i2i')) {
+      if (requiresImageSource) {
         const canvas = fabricCanvas.current;
         if (!canvas) {
           showAiError('AI Generation Error', 'Canvas is not available.');
@@ -2848,7 +2852,13 @@ const rawMap = config.workflow_map;
 
       const selectedWorkflow = settingsDraft.workflowMap?.[selectedMode] || (selectedMode === 't2i' ? settingsDraft.workflow : '');
       if (selectedMode !== 't2i' && !selectedWorkflow) {
-        const displayMode = selectedMode === 'i2i_single' ? 'I2I (Single)' : selectedMode === 'i2i_multi' ? 'I2I (Multi)' : selectedMode.toUpperCase();
+        const displayMode = selectedMode === 'i2i_single'
+          ? 'I2I (Single)'
+          : selectedMode === 'i2i_multi'
+            ? 'I2I (Multi)'
+            : selectedMode === 'upscale'
+              ? 'Upscale'
+              : selectedMode.toUpperCase();
         throw new Error(`No workflow mapped for ${displayMode}. Select one in Settings > ComfyUI.`);
       }
       if (selectedWorkflow) formData.append('workflow', selectedWorkflow);
@@ -3283,7 +3293,7 @@ const rawMap = config.workflow_map;
                     setShowAiInput(false);
                     return;
                   }
-                  if (mode.key.startsWith('i2i')) {
+                  if (mode.key.startsWith('i2i') || mode.key === 'upscale') {
                           if (!validateI2ISourceSelection(mode.key)) return;
                         }
                   setActiveAiMode(mode.key);
@@ -3440,12 +3450,12 @@ const rawMap = config.workflow_map;
               onChange={(e) => setAiPrompt(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key !== 'Enter') return;
-                if (activeAiMode.startsWith('i2i') && !validateI2ISourceSelection(activeAiMode)) return;
+                if ((activeAiMode.startsWith('i2i') || activeAiMode === 'upscale') && !validateI2ISourceSelection(activeAiMode)) return;
                 generateAiImage(activeAiMode);
               }}
             />
             <button className="ai-gen-btn" onClick={() => {
-                if (activeAiMode.startsWith('i2i') && !validateI2ISourceSelection(activeAiMode)) return;
+                if ((activeAiMode.startsWith('i2i') || activeAiMode === 'upscale') && !validateI2ISourceSelection(activeAiMode)) return;
                 generateAiImage(activeAiMode);
             }} disabled={isAiProcessing}>
               {isAiProcessing ? 'Generating...' : 'Create'}
