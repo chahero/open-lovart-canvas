@@ -905,8 +905,50 @@ const rawMap = config.workflow_map;
 
     // --- Snapping Logic ---
     const SNAP_THRESHOLD = 10;
+    const resetMoveLockState = (obj) => {
+      if (!obj || typeof obj !== 'object') return;
+      if (obj.__moveLockState) delete obj.__moveLockState;
+    };
+    canvas.on('mouse:down', (evt) => {
+      const target = evt?.target;
+      if (!target || target.id === 'world-bounds') return;
+      target.__moveLockState = {
+        startLeft: Number(target.left || 0),
+        startTop: Number(target.top || 0),
+        axis: null,
+      };
+    });
     canvas.on('object:moving', (e) => {
       const obj = e.target;
+      const moveEvent = e?.e;
+      if (obj && obj.id !== 'world-bounds') {
+        // Move is more natural as free by default; Shift enables axis lock.
+        if (moveEvent?.shiftKey) {
+          const state = obj.__moveLockState || {
+            startLeft: Number(obj.left || 0),
+            startTop: Number(obj.top || 0),
+            axis: null,
+          };
+          const dx = Number(obj.left || 0) - state.startLeft;
+          const dy = Number(obj.top || 0) - state.startTop;
+          if (!state.axis) {
+            state.axis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
+          }
+          if (state.axis === 'x') {
+            obj.set({ top: state.startTop });
+          } else {
+            obj.set({ left: state.startLeft });
+          }
+          obj.__moveLockState = state;
+        } else {
+          obj.__moveLockState = {
+            startLeft: Number(obj.left || 0),
+            startTop: Number(obj.top || 0),
+            axis: null,
+          };
+        }
+      }
+
       const canvasWidth = WORLD_CANVAS_WIDTH;
       const canvasHeight = WORLD_CANVAS_HEIGHT;
       const objWidth = obj.getBoundingRect().width;
@@ -926,14 +968,29 @@ const rawMap = config.workflow_map;
       if (Math.abs(obj.top) < SNAP_THRESHOLD) obj.set({ top: 0 });
       if (Math.abs(obj.top + objHeight - canvasHeight) < SNAP_THRESHOLD) obj.set({ top: canvasHeight - objHeight });
     });
+    canvas.on('object:rotating', (e) => {
+      const obj = e?.target;
+      if (!obj) return;
+      // Consistent key rule: default constrained, Shift unlocks free transform.
+      if (e?.e?.shiftKey) return;
+      const step = 15;
+      const angle = Number(obj.angle || 0);
+      obj.set({ angle: Math.round(angle / step) * step });
+    });
 
     canvas.on('object:added', (evt) => {
       ensureRectRoundControls(evt?.target);
       stabilizeRasterObject(evt?.target);
       syncUI();
     });
-    canvas.on('object:removed', () => { syncUI(); });
-    canvas.on('object:modified', () => { syncUI(); });
+    canvas.on('object:removed', (evt) => {
+      resetMoveLockState(evt?.target);
+      syncUI();
+    });
+    canvas.on('object:modified', (evt) => {
+      resetMoveLockState(evt?.target);
+      syncUI();
+    });
     canvas.on('object:scaling', syncUI);
     canvas.on('selection:created', () => {
       const targets = canvas.getActiveObjects?.() || [];
