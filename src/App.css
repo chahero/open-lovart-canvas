@@ -1514,6 +1514,83 @@ input[type="color"]::-webkit-color-swatch {
   transform: scale(1.05);
 }
 
+.ai-history-btn {
+  background: rgba(99, 102, 241, 0.16);
+  color: #c7d2fe;
+  border: 1px solid rgba(129, 140, 248, 0.35);
+  padding: 9px 12px;
+  border-radius: 100px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+
+.ai-history-btn:hover,
+.ai-history-btn.active {
+  background: rgba(99, 102, 241, 0.26);
+  border-color: rgba(129, 140, 248, 0.6);
+  color: #eef2ff;
+}
+
+.ai-prompt-history {
+  margin-top: 10px;
+  background: rgba(15, 23, 42, 0.96);
+  border: 1px solid rgba(129, 140, 248, 0.35);
+  border-radius: 12px;
+  box-shadow: 0 14px 28px rgba(2, 6, 23, 0.45);
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.ai-prompt-history-empty {
+  color: #cbd5e1;
+  font-size: 13px;
+  padding: 10px 12px;
+}
+
+.ai-prompt-history-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-prompt-history-use {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #f8fafc;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.3;
+  padding: 9px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.ai-prompt-history-use:hover {
+  background: rgba(99, 102, 241, 0.2);
+}
+
+.ai-prompt-history-delete {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: #fca5a5;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.ai-prompt-history-delete:hover {
+  background: rgba(239, 68, 68, 0.16);
+  color: #fecaca;
+}
+
 .ai-gen-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;

@@ -14,6 +14,30 @@ import './App.css';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 const WORLD_CANVAS_WIDTH = 5000;
 const WORLD_CANVAS_HEIGHT = 5000;
+const PROMPT_HISTORY_STORAGE_KEY = 'open_lovart_prompt_history_v1';
+const PROMPT_HISTORY_LIMIT = 80;
+const EMPTY_PROMPT_HISTORY = {
+  t2i: [],
+  i2i_single: [],
+  i2i_multi: [],
+  upscale: [],
+};
+const sanitizePromptHistoryEntry = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+const normalizePromptHistoryMap = (raw) => {
+  const next = { ...EMPTY_PROMPT_HISTORY };
+  if (!raw || typeof raw !== 'object') return next;
+  Object.keys(next).forEach((modeKey) => {
+    const source = Array.isArray(raw[modeKey]) ? raw[modeKey] : [];
+    const unique = [];
+    source.forEach((item) => {
+      const normalized = sanitizePromptHistoryEntry(item);
+      if (!normalized || unique.includes(normalized)) return;
+      unique.push(normalized);
+    });
+    next[modeKey] = unique.slice(0, PROMPT_HISTORY_LIMIT);
+  });
+  return next;
+};
 const SHORTCUT_DEFINITIONS = [
   { id: 'select', label: 'Selection', key: 'v', keyLabel: 'V' },
   { id: 'pan', label: 'Hand / Pan', key: 'h', keyLabel: 'H' },
@@ -169,6 +193,8 @@ const App = () => {
   const [showVideoPlayerModal, setShowVideoPlayerModal] = useState(false);
   const [videoPlayerSource, setVideoPlayerSource] = useState('');
   const [videoPlayerTitle, setVideoPlayerTitle] = useState('');
+  const [promptHistoryByMode, setPromptHistoryByMode] = useState(() => ({ ...EMPTY_PROMPT_HISTORY }));
+  const [showPromptHistory, setShowPromptHistory] = useState(false);
   const [settingsOptions, setSettingsOptions] = useState({
     workflows: [],
     ocrModels: [],
@@ -196,6 +222,32 @@ const App = () => {
   const getAiModeConfig = (mode = 't2i') => {
     const normalizedMode = mode === 'i2i' ? 'i2i_single' : mode;
     return aiModeConfig.find((entry) => entry.key === normalizedMode) || aiModeConfig[0];
+  };
+  const getPromptHistoryForMode = (mode = 't2i') => {
+    const modeKey = getAiModeConfig(mode).key;
+    return promptHistoryByMode?.[modeKey] || [];
+  };
+  const savePromptToHistory = (mode, promptText) => {
+    const normalizedPrompt = sanitizePromptHistoryEntry(promptText);
+    if (!normalizedPrompt) return;
+    const modeKey = getAiModeConfig(mode).key;
+    setPromptHistoryByMode((prev) => {
+      const current = Array.isArray(prev?.[modeKey]) ? prev[modeKey] : [];
+      return {
+        ...prev,
+        [modeKey]: [normalizedPrompt, ...current.filter((item) => item !== normalizedPrompt)].slice(0, PROMPT_HISTORY_LIMIT),
+      };
+    });
+  };
+  const removePromptFromHistory = (mode, promptText) => {
+    const modeKey = getAiModeConfig(mode).key;
+    setPromptHistoryByMode((prev) => {
+      const current = Array.isArray(prev?.[modeKey]) ? prev[modeKey] : [];
+      return {
+        ...prev,
+        [modeKey]: current.filter((item) => item !== promptText),
+      };
+    });
   };
 
   const normalizeWorkflowMapFromConfig = (config = {}) => {
@@ -237,6 +289,7 @@ const rawMap = config.workflow_map;
   const rightClickActiveSelectionIdsRef = useRef([]);
   const rightClickSelectionEpochRef = useRef(0);
   const topbarMenuRef = useRef(null);
+  const promptHistoryRef = useRef(null);
 
   // --- Sync Refs ---
   useEffect(() => { activeToolRef.current = activeTool; }, [activeTool]);
@@ -288,6 +341,33 @@ const rawMap = config.workflow_map;
     window.addEventListener('pointerdown', onPointerDown);
     return () => window.removeEventListener('pointerdown', onPointerDown);
   }, [showProjectMenu]);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(PROMPT_HISTORY_STORAGE_KEY);
+      if (!raw) return;
+      setPromptHistoryByMode(normalizePromptHistoryMap(JSON.parse(raw)));
+    } catch (err) {
+      console.warn('[PromptHistory] failed to read cache', err);
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem(PROMPT_HISTORY_STORAGE_KEY, JSON.stringify(promptHistoryByMode));
+    } catch (err) {
+      console.warn('[PromptHistory] failed to write cache', err);
+    }
+  }, [promptHistoryByMode]);
+  useEffect(() => {
+    if (!showPromptHistory) return;
+    const onPointerDown = (event) => {
+      if (!promptHistoryRef.current) return;
+      if (!promptHistoryRef.current.contains(event.target)) {
+        setShowPromptHistory(false);
+      }
+    };
+    window.addEventListener('pointerdown', onPointerDown);
+    return () => window.removeEventListener('pointerdown', onPointerDown);
+  }, [showPromptHistory]);
 
   const syncUI = useCallback(() => {
     const canvas = fabricCanvas.current;
@@ -3017,6 +3097,9 @@ const rawMap = config.workflow_map;
 
     setIsAiProcessing(true);
     try {
+      if (aiPrompt.trim()) {
+        savePromptToHistory(modeConfig.key, aiPrompt);
+      }
       const formData = new FormData();
       formData.append('prompt', aiPrompt);
 
@@ -3525,6 +3608,8 @@ const rawMap = config.workflow_map;
   );
 
   const canAlignNow = canAlignSelection();
+  const promptHistoryItems = getPromptHistoryForMode(activeAiMode)
+    .filter((item) => item.toLowerCase().includes(aiPrompt.trim().toLowerCase()));
 
   return (
     <div className="app-container" onContextMenu={(e) => e.preventDefault()}>
@@ -3634,7 +3719,7 @@ const rawMap = config.workflow_map;
       </main>
 
       {showAiInput && (
-        <div className="ai-prompt-overlay">
+        <div className="ai-prompt-overlay" ref={promptHistoryRef}>
           <div className="ai-prompt-container">
             <Sparkles size={20} className="ai-accent-icon" />
               <input
@@ -3642,13 +3727,25 @@ const rawMap = config.workflow_map;
                 className="ai-prompt-input"
                 placeholder={getAiModeConfig(activeAiMode).promptRequired ? "Describe the image you want to create..." : "Prompt (optional for Upscale)"}
                 value={aiPrompt}
-                onChange={(e) => setAiPrompt(e.target.value)}
+                onFocus={() => setShowPromptHistory(true)}
+                onChange={(e) => {
+                  setAiPrompt(e.target.value);
+                  setShowPromptHistory(true);
+                }}
               onKeyDown={(e) => {
                 if (e.key !== 'Enter') return;
                 if ((getAiModeConfig(activeAiMode).minImageLayers || 0) > 0 && !validateAiSourceSelection(activeAiMode)) return;
                 generateAiImage(activeAiMode);
               }}
             />
+            <button
+              type="button"
+              className={`ai-history-btn ${showPromptHistory ? 'active' : ''}`}
+              onClick={() => setShowPromptHistory((prev) => !prev)}
+              title="Prompt history"
+            >
+              History
+            </button>
             <button className="ai-gen-btn" onClick={() => {
                 if ((getAiModeConfig(activeAiMode).minImageLayers || 0) > 0 && !validateAiSourceSelection(activeAiMode)) return;
                 generateAiImage(activeAiMode);
@@ -3656,6 +3753,36 @@ const rawMap = config.workflow_map;
               {isAiProcessing ? 'Generating...' : 'Create'}
             </button>
           </div>
+          {showPromptHistory && (
+            <div className="ai-prompt-history">
+              {promptHistoryItems.length === 0 ? (
+                <div className="ai-prompt-history-empty">No saved prompts for this mode</div>
+              ) : (
+                promptHistoryItems.map((item, idx) => (
+                  <div className="ai-prompt-history-item" key={`${item}-${idx}`}>
+                    <button
+                      type="button"
+                      className="ai-prompt-history-use"
+                      onClick={() => {
+                        setAiPrompt(item);
+                        setShowPromptHistory(false);
+                      }}
+                    >
+                      {item}
+                    </button>
+                    <button
+                      type="button"
+                      className="ai-prompt-history-delete"
+                      title="Delete prompt"
+                      onClick={() => removePromptFromHistory(activeAiMode, item)}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
       )}
 
