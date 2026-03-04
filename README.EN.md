@@ -78,3 +78,16 @@ FRONTEND_URL=http://localhost:5173
 ## License
 
 License policy will be added.
+
+## Recent Updates (2026-03)
+
+- Added video layer support on canvas (thumbnail-based).
+- Library now distinguishes image/video assets and supports `Save Selected Asset`.
+- Added modal playback from the video play button in Library cards.
+- Separated AI modes (T2I / I2I Single / I2I Multi / Upscale) with improved workflow mapping behavior.
+- Added prompt history (per-mode auto-save, reuse, and delete).
+- Improved `.lvcproj` project save/load with stronger state restore.
+
+## Version History
+
+- Development versions and detailed change records are tracked in root `CHANGELOG.EN.md` / `CHANGELOG.md`.
