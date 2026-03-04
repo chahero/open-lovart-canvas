@@ -2606,6 +2606,109 @@ const rawMap = config.workflow_map;
     syncUI();
   };
 
+  const placeObjectAtDropOrCenter = (canvas, obj, dropPoint) => {
+    if (!canvas || !obj) return;
+    if (dropPoint) {
+      const vpt = canvas.viewportTransform || [1, 0, 0, 1, 0, 0];
+      const zoomX = vpt[0] || 1;
+      const zoomY = vpt[3] || zoomX;
+      const sceneX = (dropPoint.x - vpt[4]) / zoomX;
+      const sceneY = (dropPoint.y - vpt[5]) / zoomY;
+      obj.setPositionByOrigin(new fabric.Point(sceneX, sceneY), 'center', 'center');
+      obj.setCoords();
+      return;
+    }
+    const sceneCenter = getCreationCenterInScene();
+    obj.setPositionByOrigin(sceneCenter, 'center', 'center');
+    obj.setCoords();
+  };
+
+  const createVideoPosterData = (file) => new Promise((resolve, reject) => {
+    const mediaSource = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.preload = 'auto';
+    video.muted = true;
+    video.playsInline = true;
+    video.src = mediaSource;
+    let settled = false;
+
+    const cleanup = () => {
+      settled = true;
+      video.onloadedmetadata = null;
+      video.onloadeddata = null;
+      video.onseeked = null;
+      video.onerror = null;
+    };
+
+    const captureFrame = () => {
+      if (settled) return;
+      try {
+        const width = Math.max(1, video.videoWidth || 1);
+        const height = Math.max(1, video.videoHeight || 1);
+        const posterCanvas = document.createElement('canvas');
+        posterCanvas.width = width;
+        posterCanvas.height = height;
+        const ctx = posterCanvas.getContext('2d');
+        if (!ctx) throw new Error('Could not create video poster canvas.');
+        ctx.drawImage(video, 0, 0, width, height);
+        const posterDataUrl = posterCanvas.toDataURL('image/png');
+        cleanup();
+        resolve({ posterDataUrl, mediaSource });
+      } catch (error) {
+        cleanup();
+        URL.revokeObjectURL(mediaSource);
+        reject(error);
+      }
+    };
+
+    video.onloadedmetadata = () => {
+      if (settled) return;
+      // Using a tiny seek offset avoids blank-first-frame posters on some codecs.
+      const duration = Number.isFinite(video.duration) ? video.duration : 0;
+      const seekTime = duration > 0.2 ? 0.12 : 0;
+      try {
+        if (seekTime > 0) {
+          video.currentTime = Math.min(seekTime, Math.max(0, duration - 0.05));
+          return;
+        }
+      } catch (_) {
+        // If seek fails, fallback to immediate capture.
+      }
+      captureFrame();
+    };
+
+    video.onseeked = captureFrame;
+    video.onloadeddata = captureFrame;
+
+    video.onerror = () => {
+      if (settled) return;
+      cleanup();
+      URL.revokeObjectURL(mediaSource);
+      reject(new Error('Failed to decode video file.'));
+    };
+  });
+
+  const addVideo = async (file, dropPoint = null) => {
+    if (!file || !file.type.startsWith('video/')) return;
+    try {
+      const canvas = fabricCanvas.current;
+      if (!canvas) return;
+      const { posterDataUrl, mediaSource } = await createVideoPosterData(file);
+      const poster = await loadFabricImage(posterDataUrl);
+      poster.scaleToWidth(400);
+      poster.name = file.name;
+      poster.mediaType = 'video';
+      poster.mediaSource = mediaSource;
+      canvas.add(poster);
+      placeObjectAtDropOrCenter(canvas, poster, dropPoint);
+      canvas.setActiveObject(poster);
+      setActiveTool('select');
+      canvas.requestRenderAll();
+    } catch (err) {
+      console.error("Failed to load video:", err);
+    }
+  };
+
   const addImage = (file, dropPoint = null) => {
     if (!file || !file.type.startsWith('image/')) return;
     const reader = new FileReader();
@@ -2617,20 +2720,7 @@ const rawMap = config.workflow_map;
         img.scaleToWidth(400);
         img.name = file.name;
         canvas.add(img);
-
-        if (dropPoint) {
-          const vpt = canvas.viewportTransform || [1, 0, 0, 1, 0, 0];
-          const zoomX = vpt[0] || 1;
-          const zoomY = vpt[3] || zoomX;
-          const sceneX = (dropPoint.x - vpt[4]) / zoomX;
-          const sceneY = (dropPoint.y - vpt[5]) / zoomY;
-          img.setPositionByOrigin(new fabric.Point(sceneX, sceneY), 'center', 'center');
-          img.setCoords();
-        } else {
-          const sceneCenter = getCreationCenterInScene();
-          img.setPositionByOrigin(sceneCenter, 'center', 'center');
-          img.setCoords();
-        }
+        placeObjectAtDropOrCenter(canvas, img, dropPoint);
 
         canvas.setActiveObject(img);
         setActiveTool('select');
@@ -2640,6 +2730,17 @@ const rawMap = config.workflow_map;
       }
     };
     reader.readAsDataURL(file);
+  };
+
+  const addMedia = (file, dropPoint = null) => {
+    if (!file) return;
+    if (file.type.startsWith('image/')) {
+      addImage(file, dropPoint);
+      return;
+    }
+    if (file.type.startsWith('video/')) {
+      addVideo(file, dropPoint);
+    }
   };
 
   const setProperty = (prop, value) => {
@@ -3274,7 +3375,7 @@ const rawMap = config.workflow_map;
       <button className="tool-btn" onClick={addRect} title="Rectangle (R)"><Square size={22} /></button>
       <button className="tool-btn" onClick={addCircle} title="Circle (O)"><Circle size={20} /></button>
       <button className="tool-btn" onClick={addText} title="Text (T)"><TypeIcon size={22} /></button>
-      <label className="tool-btn" title="Image (I)"><ImageIcon size={22} /><input ref={imageInputRef} type="file" hidden accept="image/*" onChange={(e) => addImage(e.target.files[0])} /></label>
+      <label className="tool-btn" title="Image / Video (I)"><ImageIcon size={22} /><input ref={imageInputRef} type="file" hidden accept="image/*,video/*" onChange={(e) => addMedia(e.target.files[0])} /></label>
     </aside>
   );
 
@@ -3376,29 +3477,29 @@ const rawMap = config.workflow_map;
 
           const files = e.dataTransfer.files;
           if (files && files.length > 0) {
-            const imageFiles = Array.from(files).filter((file) => file.type.startsWith('image/'));
-            if (imageFiles.length === 0) return;
+            const mediaFiles = Array.from(files).filter((file) => file.type.startsWith('image/') || file.type.startsWith('video/'));
+            if (mediaFiles.length === 0) return;
 
             const canvasRect = fabricCanvas.current?.upperCanvasEl?.getBoundingClientRect();
             const dropPoint = canvasRect
               ? { x: e.clientX - canvasRect.left, y: e.clientY - canvasRect.top }
               : null;
 
-            if (!dropPoint || imageFiles.length === 1) {
-              imageFiles.forEach((file) => addImage(file, dropPoint));
+            if (!dropPoint || mediaFiles.length === 1) {
+              mediaFiles.forEach((file) => addMedia(file, dropPoint));
               return;
             }
 
-            const cols = Math.ceil(Math.sqrt(imageFiles.length));
-            const rows = Math.ceil(imageFiles.length / cols);
+            const cols = Math.ceil(Math.sqrt(mediaFiles.length));
+            const rows = Math.ceil(mediaFiles.length / cols);
             const spacing = 64;
 
-            imageFiles.forEach((file, idx) => {
+            mediaFiles.forEach((file, idx) => {
               const col = idx % cols;
               const row = Math.floor(idx / cols);
               const offsetX = (col - (cols - 1) / 2) * spacing;
               const offsetY = (row - (rows - 1) / 2) * spacing;
-              addImage(file, {
+              addMedia(file, {
                 x: dropPoint.x + offsetX,
                 y: dropPoint.y + offsetY,
               });
