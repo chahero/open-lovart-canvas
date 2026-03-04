@@ -1240,20 +1240,60 @@ input[type="color"]::-webkit-color-swatch {
   text-align: left;
 }
 
-.library-card img {
+.library-media-preview {
+  position: relative;
   width: 100%;
   aspect-ratio: 1 / 1;
-  object-fit: cover;
-  display: block;
+  overflow: hidden;
   background: #e2e8f0;
 }
 
-.library-card video {
+.library-media-preview img {
   width: 100%;
-  aspect-ratio: 1 / 1;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.library-media-preview video {
+  width: 100%;
+  height: 100%;
   object-fit: cover;
   display: block;
   background: #0f172a;
+}
+
+.library-video-play-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.library-video-play-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.68);
+  box-shadow: 0 8px 20px rgba(2, 6, 23, 0.35);
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.library-video-play-btn:focus-visible {
+  outline: 2px solid #818cf8;
+  outline-offset: 2px;
+}
+
+.library-video-play-btn svg {
+  width: 24px;
+  height: 24px;
+  fill: #f8fafc;
 }
 
 .library-card span {

@@ -4012,12 +4012,43 @@ const rawMap = config.workflow_map;
                         onClick={() => addAssetToCanvas(asset)}
                         title={getAssetDisplayName(asset.name)}
                       >
-                        {isVideoAsset ? (
-                          <video src={toAbsoluteAssetUrl(asset.url)} muted playsInline preload="metadata" />
-                        ) : (
-                          <img src={toAbsoluteAssetUrl(asset.url)} alt={getAssetDisplayName(asset.name)} loading="lazy" />
-                        )}
-                        <span className="library-item-label">{`${mediaLabel} · ${getAssetDisplayName(asset.name)}`}</span>
+                        <div className="library-media-preview">
+                          {isVideoAsset ? (
+                            <video src={toAbsoluteAssetUrl(asset.url)} muted playsInline preload="metadata" />
+                          ) : (
+                            <img src={toAbsoluteAssetUrl(asset.url)} alt={getAssetDisplayName(asset.name)} loading="lazy" />
+                          )}
+                          {isVideoAsset && (
+                            <div className="library-video-play-overlay" aria-hidden="true">
+                              <div
+                                className="library-video-play-btn"
+                                role="button"
+                                tabIndex={0}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setVideoPlayerTitle(getAssetDisplayName(asset.name) || 'Video');
+                                  setVideoPlayerSource(toAbsoluteAssetUrl(asset.url));
+                                  setShowVideoPlayerModal(true);
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setVideoPlayerTitle(getAssetDisplayName(asset.name) || 'Video');
+                                    setVideoPlayerSource(toAbsoluteAssetUrl(asset.url));
+                                    setShowVideoPlayerModal(true);
+                                  }
+                                }}
+                              >
+                                <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                                  <path d="M8 6v12l10-6z" />
+                                </svg>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        <span className="library-item-label">{`${mediaLabel} - ${getAssetDisplayName(asset.name)}`}</span>
                       </button>
                       <button
                         className="library-rename-btn"
