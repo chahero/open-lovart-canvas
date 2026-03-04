@@ -3136,8 +3136,11 @@ const rawMap = config.workflow_map;
   };
 
   const applyImageFilter = (type, val) => {
-    const obj = fabricCanvas.current.getActiveObject();
-    if (!obj || obj.type !== 'FabricImage') return;
+    const canvas = fabricCanvas.current;
+    const obj = canvas?.getActiveObject?.();
+    const isImageObj = obj && (obj.type === 'FabricImage' || obj.type === 'image');
+    if (!isImageObj) return;
+    if (!Array.isArray(obj.filters)) obj.filters = [];
 
     if (type === 'grayscale') {
       if (val) obj.filters.push(new fabric.filters.Grayscale());
@@ -3147,8 +3150,8 @@ const rawMap = config.workflow_map;
       if (f) f.brightness = val;
       else obj.filters.push(new fabric.filters.Brightness({ brightness: val }));
     }
-    obj.applyFilters();
-    fabricCanvas.current.renderAll();
+    if (typeof obj.applyFilters === 'function') obj.applyFilters();
+    canvas.renderAll();
     syncUI();
   };
 
