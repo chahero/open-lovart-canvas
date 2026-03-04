@@ -351,6 +351,34 @@ def apply_mode_specific_inputs(
     return changed_targets
 
 
+def get_mode_requirements(mode: str) -> dict:
+    selected_mode = str(mode or "t2i").strip().lower()
+    if selected_mode == "i2i":
+        selected_mode = "i2i_single"
+
+    requirements = {
+        "t2i": {"display_name": "T2I", "prompt_required": True, "min_images": 0},
+        "i2i_single": {"display_name": "I2I (Single)", "prompt_required": True, "min_images": 1},
+        "i2i_multi": {"display_name": "I2I (Multi)", "prompt_required": True, "min_images": 2},
+        "upscale": {"display_name": "Upscale", "prompt_required": False, "min_images": 1},
+    }
+
+    resolved_mode = selected_mode if selected_mode in requirements else "t2i"
+    selected = requirements[resolved_mode].copy()
+    selected["mode"] = resolved_mode
+    return selected
+
+
+def get_mode_image_requirement_message(mode: str, min_images: int) -> str:
+    if mode == "i2i_multi":
+        return "I2I (Multi) generation requires at least 2 image sources. Select two or more image layers."
+    if mode == "upscale":
+        return "Upscale generation requires an image source. Select one image layer on canvas."
+    if min_images > 0:
+        return "I2I generation requires an image source. Select one image layer on canvas."
+    return "Image source is required for this mode."
+
+
 def randomize_seed_nodes(workflow: dict, seed: int):
     if not isinstance(workflow, dict):
         return
@@ -1081,18 +1109,19 @@ async def generate_image(
     """
     try:
         requested_workflow = workflow.strip() if workflow else ""
-        selected_mode = mode.strip().lower() if mode else "t2i"
-        if selected_mode == "i2i":
-            selected_mode = "i2i_single"
-        is_i2i_mode = selected_mode in {"i2i_single", "i2i_multi", "upscale"}
+        mode_requirements = get_mode_requirements(mode)
+        selected_mode = mode_requirements["mode"]
+        requires_prompt = mode_requirements["prompt_required"]
+        min_source_images = mode_requirements["min_images"]
+        requires_source_images = min_source_images > 0
         normalized_prompt = prompt.strip() if isinstance(prompt, str) else ""
 
-        if selected_mode != "upscale" and not normalized_prompt:
+        if requires_prompt and not normalized_prompt:
             raise HTTPException(status_code=400, detail="Prompt is required for this mode.")
 
         if not requested_workflow:
             requested_workflow = (WORKFLOW_MAP.get(selected_mode) if WORKFLOW_MAP else "")
-        if not requested_workflow and is_i2i_mode and selected_mode in WORKFLOW_MAP:
+        if not requested_workflow and selected_mode != "t2i" and selected_mode in WORKFLOW_MAP:
             raise HTTPException(status_code=400, detail=f"No workflow mapped for {selected_mode}. Select one in Settings > ComfyUI.")
         if not requested_workflow:
             requested_workflow = GENERATE_WORKFLOW
@@ -1105,40 +1134,31 @@ async def generate_image(
             workflow_data = json.load(f)
 
         source_image_names = []
-        if is_i2i_mode:
-            if selected_mode == "i2i_multi":
-                multi_source_images: List[UploadFile] = []
-                if source_images:
-                    multi_source_images = source_images
-                elif source_image:
-                    multi_source_images = [source_image]
-                if len(multi_source_images) < 2:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="I2I (Multi) generation requires at least 2 image sources. Select two or more image layers.",
-                    )
-            else:
-                multi_source_images = [source_image] if source_image else []
-                if not multi_source_images:
-                    detail_message = (
-                        "Upscale generation requires an image source. Select one image layer on canvas."
-                        if selected_mode == "upscale"
-                        else "I2I generation requires an image source. Select one image layer on canvas."
-                    )
-                    raise HTTPException(
-                        status_code=400,
-                        detail=detail_message,
-                    )
+        if requires_source_images:
+            incoming_sources: List[UploadFile] = []
+            if source_images:
+                incoming_sources.extend([s for s in source_images if s is not None])
+            if source_image is not None:
+                incoming_sources.append(source_image)
 
-            for source in multi_source_images:
+            if len(incoming_sources) < min_source_images:
+                raise HTTPException(
+                    status_code=400,
+                    detail=get_mode_image_requirement_message(selected_mode, min_source_images),
+                )
+
+            if selected_mode != "i2i_multi" and len(incoming_sources) > 1:
+                incoming_sources = [incoming_sources[0]]
+
+            for source in incoming_sources:
                 if source is None:
                     continue
                 source_image_names.append(await upload_image_to_comfyui(source))
 
-            if not source_image_names:
+            if len(source_image_names) < min_source_images:
                 raise HTTPException(
                     status_code=400,
-                    detail="I2I image upload failed.",
+                    detail=get_mode_image_requirement_message(selected_mode, min_source_images),
                 )
 
         changed_targets = apply_mode_specific_inputs(
@@ -1150,11 +1170,11 @@ async def generate_image(
         if normalized_prompt and not changed_targets["prompt"] and not apply_prompt_to_workflow(workflow_data, prompt):
             print(f"[generate-image] Warning: could not find a recognized prompt target in workflow '{requested_workflow}'.")
 
-        if is_i2i_mode:
-            if selected_mode == "i2i_multi" and len(source_image_names) < 2:
+        if requires_source_images:
+            if len(source_image_names) < min_source_images:
                 raise HTTPException(
                     status_code=400,
-                    detail="I2I (Multi) generation requires at least 2 image sources. Select two or more image layers.",
+                    detail=get_mode_image_requirement_message(selected_mode, min_source_images),
                 )
             if not changed_targets["image_count"]:
                 loadimage_nodes = describe_loadimage_nodes(workflow_data)

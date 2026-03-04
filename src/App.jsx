@@ -187,11 +187,16 @@ const App = () => {
   });
 
   const aiModeConfig = [
-    { key: 't2i', label: 'T2I Generate' },
-    { key: 'i2i_single', label: 'I2I (Single)' },
-    { key: 'i2i_multi', label: 'I2I (Multi)' },
-    { key: 'upscale', label: 'Upscale' },
+    { key: 't2i', label: 'T2I Generate', promptRequired: true, minImageLayers: 0 },
+    { key: 'i2i_single', label: 'I2I (Single)', promptRequired: true, minImageLayers: 1 },
+    { key: 'i2i_multi', label: 'I2I (Multi)', promptRequired: true, minImageLayers: 2 },
+    { key: 'upscale', label: 'Upscale', promptRequired: false, minImageLayers: 1 },
   ];
+
+  const getAiModeConfig = (mode = 't2i') => {
+    const normalizedMode = mode === 'i2i' ? 'i2i_single' : mode;
+    return aiModeConfig.find((entry) => entry.key === normalizedMode) || aiModeConfig[0];
+  };
 
   const normalizeWorkflowMapFromConfig = (config = {}) => {
 const rawMap = config.workflow_map;
@@ -202,6 +207,12 @@ const rawMap = config.workflow_map;
     upscale: String(rawMap?.upscale || '').trim(),
   };
 };
+
+  const showNoticeModal = (title, message) => {
+    setAiValidationTitle(title || 'Notice');
+    setAiValidationMessage(message || 'An error occurred.');
+    setShowAiValidationModal(true);
+  };
 
   // --- Refs ---
   const canvasRef = useRef(null);
@@ -663,7 +674,7 @@ const rawMap = config.workflow_map;
       setShowSettingsModal(false);
     } catch (err) {
       console.error(err);
-      alert('Settings save failed: ' + err.message);
+      showNoticeModal('Settings Error', 'Settings save failed: ' + (err?.message || 'Unknown error.'));
     } finally {
       setIsSettingsSaving(false);
     }
@@ -716,7 +727,7 @@ const rawMap = config.workflow_map;
       canvas.requestRenderAll();
     } catch (err) {
       console.error(err);
-      alert('Failed to insert library asset: ' + err.message);
+      showNoticeModal('Library Error', 'Failed to insert library asset: ' + (err?.message || 'Unknown error.'));
     }
   };
 
@@ -724,7 +735,7 @@ const rawMap = config.workflow_map;
     const canvas = fabricCanvas.current;
     const active = canvas?.getActiveObject();
     if (!active || (active.type !== 'FabricImage' && active.type !== 'image')) {
-      alert('Select an image layer first.');
+      showNoticeModal('Library Error', 'Select an image layer first.');
       return;
     }
 
@@ -752,7 +763,7 @@ const rawMap = config.workflow_map;
       if (saved) setAssetLibrary((prev) => [saved, ...prev]);
     } catch (err) {
       console.error(err);
-      alert('Failed to save library asset: ' + err.message);
+      showNoticeModal('Library Error', 'Failed to save library asset: ' + (err?.message || 'Unknown error.'));
     } finally {
       setIsLibrarySaving(false);
     }
@@ -774,7 +785,7 @@ const rawMap = config.workflow_map;
       setPendingDeleteAsset(null);
     } catch (err) {
       console.error(err);
-      alert('Failed to delete library asset: ' + err.message);
+      showNoticeModal('Library Error', 'Failed to delete library asset: ' + (err?.message || 'Unknown error.'));
     } finally {
       setIsDeletingAsset(false);
     }
@@ -813,7 +824,7 @@ const rawMap = config.workflow_map;
       }
     } catch (err) {
       console.error(err);
-      alert('Failed to rename library asset: ' + err.message);
+      showNoticeModal('Library Error', 'Failed to rename library asset: ' + (err?.message || 'Unknown error.'));
     } finally {
       setEditingAssetId(null);
       setEditingAssetName('');
@@ -2027,7 +2038,7 @@ const rawMap = config.workflow_map;
       await restoreCanvasFromProject(parsed);
     } catch (error) {
       console.error('Failed to load project:', error);
-      alert('Failed to load project file.');
+      showNoticeModal('Project Error', 'Failed to load project file.');
     }
   };
 
@@ -2144,13 +2155,13 @@ const rawMap = config.workflow_map;
 
     const bounds = getSelectedBounds();
     if (!bounds) {
-      alert('Could not determine selection bounds.');
+      showNoticeModal('Export Error', 'Could not determine selection bounds.');
       return false;
     }
 
     const selectedObjects = canvas.getActiveObjects().filter((obj) => obj.id !== 'world-bounds');
     if (!selectedObjects.length) {
-      alert('Could not determine selectable objects for export.');
+      showNoticeModal('Export Error', 'Could not determine selectable objects for export.');
       return false;
     }
 
@@ -2201,7 +2212,7 @@ const rawMap = config.workflow_map;
     }
 
     if (!dataURL) {
-      alert('Export failed to generate image data.');
+      showNoticeModal('Export Error', 'Export failed to generate image data.');
       return false;
     }
 
@@ -2209,7 +2220,7 @@ const rawMap = config.workflow_map;
       try {
         dataURL = await resizeImageDataURL(dataURL, widthInput, heightInput, normalizedFormat, quality);
       } catch (err) {
-        alert('Export failed while resizing to requested size.');
+        showNoticeModal('Export Error', 'Export failed while resizing to requested size.');
         return false;
       }
     }
@@ -2221,7 +2232,7 @@ const rawMap = config.workflow_map;
       link.download = `selection-export${sizeSuffix}.${ext}`;
       link.click();
     } catch (err) {
-      alert('Export failed. Please try again.');
+      showNoticeModal('Export Error', 'Export failed. Please try again.');
       return false;
     }
 
@@ -2763,53 +2774,54 @@ const rawMap = config.workflow_map;
       setShowRemoveBgConfirm(false); // Close modal on success
     } catch (err) {
       console.error(err);
-      alert('AI Processing Error: ' + err.message);
+      showNoticeModal('AI Processing Error', 'AI Processing Error: ' + (err?.message || 'Unknown error.'));
     } finally {
       setIsAiProcessing(false);
     }
   };
 
   const showAiValidationModalMessage = (title, message) => {
-    setAiValidationTitle(title || 'AI Generation Error');
-    setAiValidationMessage(message || 'An error occurred while generating image.');
-    setShowAiValidationModal(true);
+    showNoticeModal(title || 'AI Generation Error', message || 'An error occurred while generating image.');
   };
 
-  const validateI2ISourceSelection = (mode = 'i2i_single') => {
+  const getAiImageSelectionErrorMessage = (mode = 'i2i_single') => {
     const selectedMode = mode === 'i2i' ? 'i2i_single' : mode;
-    const sourceObjects = getI2ISourceObjects(selectedMode);
-    if (sourceObjects.length === 0) {
-      showAiValidationModalMessage('AI Generation Error', getI2IValidationErrorMessage(selectedMode));
+    if (selectedMode === 'i2i_multi') {
+      return 'I2I (Multi) generation requires at least 2 image layers selected.';
+    }
+    if (selectedMode === 'upscale') {
+      return 'Upscale generation requires an image layer selected.';
+    }
+    return 'I2I generation requires an image layer selected.';
+  };
+
+  const getAiSourceObjects = (mode = 'i2i_single') => {
+    const canvas = fabricCanvas.current;
+    if (!canvas?.getActiveObjects) return [];
+    const imageObjects = canvas.getActiveObjects().filter((obj) => obj.type === 'FabricImage' || obj.type === 'image');
+    const modeConfig = getAiModeConfig(mode);
+    if (imageObjects.length < (modeConfig.minImageLayers || 0)) return [];
+    return imageObjects;
+  };
+
+  const validateAiSourceSelection = (mode = 'i2i_single') => {
+    const modeConfig = getAiModeConfig(mode);
+    if ((modeConfig.minImageLayers || 0) <= 0) return true;
+    const sourceObjects = getAiSourceObjects(modeConfig.key);
+    if (sourceObjects.length < modeConfig.minImageLayers) {
+      showAiValidationModalMessage('AI Generation Error', getAiImageSelectionErrorMessage(modeConfig.key));
       return false;
     }
     return true;
   };
 
-  const getI2ISourceObjects = (mode = 'i2i_single') => {
-    const canvas = fabricCanvas.current;
-    if (!canvas?.getActiveObjects) return [];
-    const imageObjects = canvas.getActiveObjects().filter((obj) => obj.type === 'FabricImage' || obj.type === 'image');
-    const selectedMode = mode === 'i2i' ? 'i2i_single' : mode;
+  const collectAiSourceImageBlobs = async (mode = 'i2i_single') => {
+    const modeConfig = getAiModeConfig(mode);
+    if ((modeConfig.minImageLayers || 0) <= 0) return [];
 
-    if (selectedMode === 'i2i_multi' && imageObjects.length < 2) return [];
-    if ((selectedMode === 'i2i_single' || selectedMode === 'upscale') && imageObjects.length < 1) return [];
-    return imageObjects;
-  };
-
-  const getI2IValidationErrorMessage = (mode = 'i2i_single') => {
-    const selectedMode = mode === 'i2i' ? 'i2i_single' : mode;
-    return selectedMode === 'i2i_multi'
-      ? 'I2I (Multi) generation requires at least 2 image layers selected.'
-      : selectedMode === 'upscale'
-        ? 'Upscale generation requires an image layer selected.'
-        : 'I2I generation requires an image layer selected.';
-  };
-
-  const collectI2ISourceImageBlobs = async (mode = 'i2i_single') => {
-    const selectedMode = mode === 'i2i' ? 'i2i_single' : mode;
-    const sourceObjects = getI2ISourceObjects(selectedMode);
-    if (!sourceObjects.length) {
-      throw new Error(getI2IValidationErrorMessage(selectedMode));
+    const sourceObjects = getAiSourceObjects(modeConfig.key);
+    if (sourceObjects.length < modeConfig.minImageLayers) {
+      throw new Error(getAiImageSelectionErrorMessage(modeConfig.key));
     }
 
     const blobs = [];
@@ -2822,9 +2834,12 @@ const rawMap = config.workflow_map;
   };
 
   const generateAiImage = async (mode = 't2i') => {
-    const selectedMode = mode === 'i2i' ? 'i2i_single' : mode;
-    if (selectedMode !== 'upscale' && !aiPrompt.trim()) return;
-    const requiresImageSource = selectedMode.startsWith('i2i') || selectedMode === 'upscale';
+    const modeConfig = getAiModeConfig(mode);
+    if (modeConfig.promptRequired && !aiPrompt.trim()) {
+      showAiValidationModalMessage('AI Generation Error', 'Prompt is required for this mode.');
+      return;
+    }
+    const requiresImageSource = (modeConfig.minImageLayers || 0) > 0;
     const showAiError = (title, message) => {
       setAiValidationTitle(title || 'AI Generation Error');
       setAiValidationMessage(message || 'An error occurred while generating image.');
@@ -2837,18 +2852,18 @@ const rawMap = config.workflow_map;
       formData.append('prompt', aiPrompt);
 
     if (requiresImageSource) {
-      const blobs = await collectI2ISourceImageBlobs(selectedMode);
-      if (!blobs.length) {
-        showAiError('AI Generation Error', getI2IValidationErrorMessage(selectedMode));
+      const blobs = await collectAiSourceImageBlobs(modeConfig.key);
+      if (blobs.length < modeConfig.minImageLayers) {
+        showAiError('AI Generation Error', getAiImageSelectionErrorMessage(modeConfig.key));
         return;
       }
 
-      if (selectedMode === 'i2i_multi') {
+      if (modeConfig.key === 'i2i_multi') {
         blobs.forEach((blob, index) => formData.append('source_images', blob, `source_${index + 1}.png`));
       } else {
         const [firstBlob] = blobs;
         if (!firstBlob) {
-          throw new Error(getI2IValidationErrorMessage(selectedMode));
+          throw new Error(getAiImageSelectionErrorMessage(modeConfig.key));
         }
         formData.append('source_image', firstBlob, 'source.png');
       }
@@ -2862,19 +2877,19 @@ const rawMap = config.workflow_map;
         }
       }
 
-      const selectedWorkflow = settingsDraft.workflowMap?.[selectedMode] || (selectedMode === 't2i' ? settingsDraft.workflow : '');
-      if (selectedMode !== 't2i' && !selectedWorkflow) {
-        const displayMode = selectedMode === 'i2i_single'
+      const selectedWorkflow = settingsDraft.workflowMap?.[modeConfig.key] || (modeConfig.key === 't2i' ? settingsDraft.workflow : '');
+      if (modeConfig.key !== 't2i' && !selectedWorkflow) {
+        const displayMode = modeConfig.key === 'i2i_single'
           ? 'I2I (Single)'
-          : selectedMode === 'i2i_multi'
+          : modeConfig.key === 'i2i_multi'
             ? 'I2I (Multi)'
-            : selectedMode === 'upscale'
+            : modeConfig.key === 'upscale'
               ? 'Upscale'
-              : selectedMode.toUpperCase();
+              : modeConfig.key.toUpperCase();
         throw new Error(`No workflow mapped for ${displayMode}. Select one in Settings > ComfyUI.`);
       }
       if (selectedWorkflow) formData.append('workflow', selectedWorkflow);
-      formData.append('mode', selectedMode);
+      formData.append('mode', modeConfig.key);
 
       const response = await fetch(`${API_BASE_URL}/generate-image`, {
         method: 'POST',
@@ -2905,9 +2920,7 @@ const rawMap = config.workflow_map;
       setAiPrompt('');
     } catch (err) {
       console.error(err);
-      setAiValidationTitle('AI Generation Error');
-      setAiValidationMessage(`AI Generation Error: ${err.message || 'Unknown error.'}`);
-      setShowAiValidationModal(true);
+      showNoticeModal('AI Generation Error', `AI Generation Error: ${err?.message || 'Unknown error.'}`);
     } finally {
       setIsAiProcessing(false);
     }
@@ -2917,7 +2930,7 @@ const rawMap = config.workflow_map;
     const canvas = fabricCanvas.current;
     const strokes = maskStrokesRef.current || [];
     if (strokes.length === 0) {
-      alert("Use Mask Brush (M) to paint the target area first.");
+      showNoticeModal('Segmentation', 'Use Mask Brush (M) to paint the target area first.');
       return;
     }
 
@@ -2950,10 +2963,10 @@ const rawMap = config.workflow_map;
         canvas.renderAll();
         syncUI();
       } else if (images.length > 1) {
-        alert("Please select the image you want to segment.");
+        showNoticeModal('Segmentation', 'Please select the image you want to segment.');
         return;
       } else {
-        alert("Please add an image layer first.");
+        showNoticeModal('Segmentation', 'Please add an image layer first.');
         return;
       }
     }
@@ -2967,7 +2980,7 @@ const rawMap = config.workflow_map;
     const canvas = fabricCanvas.current;
     const strokes = maskStrokesRef.current || [];
     if (strokes.length === 0) {
-      alert("Mask brush data not found. Paint the image and try again.");
+      showNoticeModal('Segmentation', 'Mask brush data not found. Paint the image and try again.');
       return;
     }
 
@@ -3069,7 +3082,7 @@ const rawMap = config.workflow_map;
       syncUI();
     } catch (err) {
       console.error(err);
-      alert('AI Segmentation Error: ' + err.message);
+      showNoticeModal('AI Segmentation Error', 'AI Segmentation Error: ' + (err?.message || 'Unknown error.'));
     } finally {
       setIsAiProcessing(false);
     }
@@ -3079,7 +3092,7 @@ const rawMap = config.workflow_map;
     const canvas = fabricCanvas.current;
     const active = canvas.getActiveObject();
     if (!active || (active.type !== 'FabricImage' && active.type !== 'image')) {
-      alert("Please select a segmented image layer (the text image) first.");
+      showNoticeModal('Text Conversion', 'Please select a segmented image layer (the text image) first.');
       return;
     }
 
@@ -3102,7 +3115,7 @@ const rawMap = config.workflow_map;
 
       const data = await response.json();
       if (!data.content || data.content.trim() === "") {
-        alert("AI could not recognize any text in this image.");
+        showNoticeModal('Text Conversion', 'AI could not recognize any text in this image.');
         return;
       }
 
@@ -3129,7 +3142,7 @@ const rawMap = config.workflow_map;
       syncUI();
     } catch (err) {
       console.error(err);
-      alert('Text Conversion Error: ' + err.message);
+      showNoticeModal('Text Conversion Error', 'Text Conversion Error: ' + (err?.message || 'Unknown error.'));
     } finally {
       setIsAiProcessing(false);
     }
@@ -3305,9 +3318,9 @@ const rawMap = config.workflow_map;
                     setShowAiInput(false);
                     return;
                   }
-                  if (mode.key.startsWith('i2i') || mode.key === 'upscale') {
-                          if (!validateI2ISourceSelection(mode.key)) return;
-                        }
+                  if ((getAiModeConfig(mode.key).minImageLayers || 0) > 0) {
+                    if (!validateAiSourceSelection(mode.key)) return;
+                  }
                   setActiveAiMode(mode.key);
                   setShowAiInput(true);
                 }}
@@ -3454,20 +3467,20 @@ const rawMap = config.workflow_map;
         <div className="ai-prompt-overlay">
           <div className="ai-prompt-container">
             <Sparkles size={20} className="ai-accent-icon" />
-            <input
-              autoFocus
-              className="ai-prompt-input"
-              placeholder="Describe the image you want to create..."
-              value={aiPrompt}
-              onChange={(e) => setAiPrompt(e.target.value)}
+              <input
+                autoFocus
+                className="ai-prompt-input"
+                placeholder={getAiModeConfig(activeAiMode).promptRequired ? "Describe the image you want to create..." : "Prompt (optional for Upscale)"}
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key !== 'Enter') return;
-                if ((activeAiMode.startsWith('i2i') || activeAiMode === 'upscale') && !validateI2ISourceSelection(activeAiMode)) return;
+                if ((getAiModeConfig(activeAiMode).minImageLayers || 0) > 0 && !validateAiSourceSelection(activeAiMode)) return;
                 generateAiImage(activeAiMode);
               }}
             />
             <button className="ai-gen-btn" onClick={() => {
-                if ((activeAiMode.startsWith('i2i') || activeAiMode === 'upscale') && !validateI2ISourceSelection(activeAiMode)) return;
+                if ((getAiModeConfig(activeAiMode).minImageLayers || 0) > 0 && !validateAiSourceSelection(activeAiMode)) return;
                 generateAiImage(activeAiMode);
             }} disabled={isAiProcessing}>
               {isAiProcessing ? 'Generating...' : 'Create'}
