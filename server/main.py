@@ -964,19 +964,9 @@ async def segment_object(
             if len(boxes) == 1:
                 boxes = boxes[0]
 
-        print(f"--- SAM 3 Request ---")
-        print(f"Input: Text='{text}', Points={len(pts)}, Boxes={len(boxes) if hasattr(boxes, '__len__') else 0}")
-
         # Decision Logic
         if text:
             # Concept Segmentation Mode
-            print("Mode: Concept Segmentation (SAM3SemanticPredictor)")
-            if boxes:
-                print("Concept source: bboxes")
-            elif pts:
-                print("Concept source: points")
-            else:
-                print("Concept source: text-only")
             sam3_predictor.set_image(img_np)
             query_args = {"text": [text]}
             if boxes:
@@ -1034,10 +1024,8 @@ async def segment_object(
                 area_norm = areas / (np.max(areas) if np.max(areas) > 0 else 1.0)
                 rank = 0.7 * conf_norm + 0.3 * area_norm
                 best_idx = int(np.argmax(rank))
-                print(f"Text mode selected mask idx={best_idx} (conf={scores[best_idx]:.4f}, area={areas[best_idx]:.1f}, score={rank[best_idx]:.4f})")
             else:
                 best_idx = int(np.argmax(areas))
-                print(f"Text mode selected mask idx={best_idx} by area (area={areas[best_idx]:.1f})")
             mask = mask_np[best_idx]
         elif mask_np.ndim == 3:
             mask = mask_np[0]
