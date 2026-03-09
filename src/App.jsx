@@ -3180,6 +3180,17 @@ const rawMap = config.workflow_map;
     const canvas = fabricCanvas.current;
     let active = canvas.getActiveObject();
     const strokes = maskStrokesRef.current || [];
+    const doSegmentLog = import.meta?.env?.DEV === true;
+    if (doSegmentLog) {
+      console.info('[Segment Debug] segmentObject called', {
+        activeType: active?.type,
+        activeId: active?.id,
+        activeName: active?.name,
+        activeHasImage: active && (active.type === 'FabricImage' || active.type === 'image'),
+        maskStrokes: strokes.length,
+        maskTargetId: maskTargetIdRef.current,
+      });
+    }
 
     // If no image is selected, infer target image from brush strokes
     if (!active || (active.type !== 'FabricImage' && active.type !== 'image')) {
@@ -3202,11 +3213,24 @@ const rawMap = config.workflow_map;
         canvas.setActiveObject(active);
         canvas.renderAll();
         syncUI();
+        if (doSegmentLog) {
+          console.info('[Segment Debug] auto-resolved image from mask target', {
+            resolvedId: active.id,
+            resolvedName: active.name,
+            maskStrokes: strokes.length,
+          });
+        }
       } else if (images.length === 1) {
         active = images[0];
         canvas.setActiveObject(active);
         canvas.renderAll();
         syncUI();
+        if (doSegmentLog) {
+          console.info('[Segment Debug] fallback to only image', {
+            resolvedId: active.id,
+            resolvedName: active.name,
+          });
+        }
       } else if (images.length > 1) {
         showNoticeModal('Segmentation', 'Please select the image you want to segment.');
         return;
@@ -3224,8 +3248,17 @@ const rawMap = config.workflow_map;
   const executeSegment = async (textPrompt) => {
     const canvas = fabricCanvas.current;
     const strokes = maskStrokesRef.current || [];
+    const doSegmentLog = import.meta?.env?.DEV === true;
     const hasMaskData = strokes.length > 0;
     const hasTextPrompt = Boolean(textPrompt && textPrompt.trim());
+    if (doSegmentLog) {
+      console.info('[Segment Debug] executeSegment start', {
+        hasMaskData,
+        hasTextPrompt,
+        maskStrokes: strokes.length,
+        prompt: textPrompt,
+      });
+    }
     if (!hasMaskData && !hasTextPrompt) {
       showNoticeModal('Segmentation', 'Paint a mask with M or enter a text prompt first.');
       return;
@@ -3233,6 +3266,21 @@ const rawMap = config.workflow_map;
 
     const active = segmentTarget; // Use the captured target
     if (!active) return;
+    if (doSegmentLog) {
+      console.info('[Segment Debug] executeSegment target', {
+        id: active.id,
+        name: active.name,
+        width: active.width,
+        height: active.height,
+        left: active.left,
+        top: active.top,
+        scaleX: active.scaleX,
+        scaleY: active.scaleY,
+        angle: active.angle,
+        originX: active.originX,
+        originY: active.originY,
+      });
+    }
 
     setShowSegmentModal(false);
     setIsAiProcessing(true);
@@ -3243,15 +3291,12 @@ const rawMap = config.workflow_map;
       const originalScaleY = active.scaleY;
 
       // 2. Map brush strokes to local prompt points for SAM
-      const matrix = active.calcTransformMatrix();
-      const invertedMatrix = fabric.util.invertTransform(matrix);
-      const offsetX = active.originX === 'left' ? 0 : active.width / 2;
-      const offsetY = active.originY === 'top' ? 0 : active.height / 2;
       const width = Math.max(1, active.width || 1);
       const height = Math.max(1, active.height || 1);
 
       let points = [];
       let labels = [];
+      let bboxes = [];
       if (hasMaskData) {
         const flattenedPoints = strokes.flatMap((stroke) => (
           (stroke.points || []).map((pt) => ({
@@ -3260,6 +3305,13 @@ const rawMap = config.workflow_map;
             size: stroke.size || maskBrushSizeRef.current || 1,
           }))
         ));
+        const hasLocalPointHelper = typeof active.toLocalPoint === 'function';
+        const hasMatrixUtil = Boolean(
+          fabric?.util &&
+          typeof fabric.util.invertTransform === 'function' &&
+          typeof fabric.util.transformPoint === 'function' &&
+          typeof active.calcTransformMatrix === 'function'
+        );
         const stride = Math.max(1, Math.ceil(flattenedPoints.length / 180));
         const sampledPoints = flattenedPoints.filter((_, idx) => idx % stride === 0);
         const avgBrushScene = sampledPoints.reduce((sum, p) => sum + (p.size || 1), 0) / Math.max(1, sampledPoints.length);
@@ -3267,26 +3319,94 @@ const rawMap = config.workflow_map;
 
         const localPoints = sampledPoints
           .map((p) => {
-            const scenePoint = new fabric.Point(p.x, p.y);
-            const localPt = fabric.util.transformPoint(scenePoint, invertedMatrix);
+            let localPt = null;
+            let conversionMode = 'fallback';
+            if (hasLocalPointHelper) {
+              localPt = active.toLocalPoint(new fabric.Point(p.x, p.y), 'left', 'top');
+              conversionMode = 'toLocalPoint';
+            } else if (hasMatrixUtil) {
+              const inv = fabric.util.invertTransform(active.calcTransformMatrix());
+              localPt = fabric.util.transformPoint(new fabric.Point(p.x, p.y), inv);
+              conversionMode = 'matrixInverse';
+            }
+            if (!localPt) {
+              const fallbackOriginX = active.left || 0;
+              const fallbackOriginY = active.top || 0;
+              const fallbackScaleX = Math.abs(active.scaleX || 1) < 0.0001 ? 1 : active.scaleX || 1;
+              const fallbackScaleY = Math.abs(active.scaleY || 1) < 0.0001 ? 1 : active.scaleY || 1;
+              localPt = new fabric.Point(
+                (p.x - fallbackOriginX) / fallbackScaleX,
+                (p.y - fallbackOriginY) / fallbackScaleY
+              );
+            }
             return {
-              x: localPt.x + offsetX,
-              y: localPt.y + offsetY,
+              x: localPt.x,
+              y: localPt.y,
+              conversionMode,
             };
           })
           .filter((p) => p.x >= 0 && p.y >= 0 && p.x <= width && p.y <= height);
 
         if (localPoints.length === 0) {
-          throw new Error('Mask does not overlap selected image.');
+          if (doSegmentLog) {
+            console.warn('[Segment Debug] mask transform produced no overlapping points', {
+              hasTextPrompt,
+              strokeCount: strokes.length,
+            });
+          }
         }
 
-        const MAX_PROMPT_POINTS = 96;
-        const pointStride = Math.max(1, Math.ceil(localPoints.length / MAX_PROMPT_POINTS));
-        points = localPoints
-          .filter((_, idx) => idx % pointStride === 0)
-          .slice(0, MAX_PROMPT_POINTS)
-          .map((p) => [Math.round(p.x), Math.round(p.y)]);
-        labels = points.map(() => 1);
+          if (doSegmentLog) {
+            console.info('[Segment Debug] mask transform', {
+              rawStrokePoints: strokes.reduce((sum, stroke) => sum + (stroke.points?.length || 0), 0),
+              sampledPoints: sampledPoints.length,
+              localPoints: localPoints.length,
+              width,
+              height,
+              conversionMode: localPoints[0]?.conversionMode || (hasLocalPointHelper ? 'toLocalPoint' : hasMatrixUtil ? 'matrixInverse' : 'fallback'),
+              brushPaddingLocal,
+              firstLocalPoint: localPoints[0],
+              lastLocalPoint: localPoints[localPoints.length - 1],
+            });
+          }
+
+        if (localPoints.length > 0) {
+          const MAX_PROMPT_POINTS = 96;
+          const pointStride = Math.max(1, Math.ceil(localPoints.length / MAX_PROMPT_POINTS));
+          points = localPoints
+            .filter((_, idx) => idx % pointStride === 0)
+            .slice(0, MAX_PROMPT_POINTS)
+            .map((p) => [Math.round(p.x), Math.round(p.y)]);
+          labels = points.map(() => 1);
+        }
+      }
+      if (points.length === 0 && hasTextPrompt) {
+        if (hasMaskData) {
+          const centerPoint = [Math.round(width / 2), Math.round(height / 2)];
+          points = [centerPoint];
+          labels = [1];
+          if (doSegmentLog) {
+            console.info('[Segment Debug] fallback to center point prompt point', { centerPoint, hasTextPrompt, hasMaskData });
+          }
+        } else {
+          bboxes = [0, 0, Math.max(1, Math.round(width) - 1), Math.max(1, Math.round(height) - 1)];
+          if (doSegmentLog) {
+            console.info('[Segment Debug] fallback to full-image bbox for text-only prompt', {
+              fullBbox: bboxes,
+            });
+          }
+        }
+      }
+      if (hasTextPrompt && !hasMaskData) {
+        if (doSegmentLog && (points.length > 0 || labels.length > 0)) {
+          console.warn('[Segment Debug] forcing text-only mode by clearing unexpected prompt points', {
+            pointsCount: points.length,
+            labelsCount: labels.length,
+            bboxesCount: bboxes.length,
+          });
+        }
+        points = [];
+        labels = [];
       }
 
       // 3. Export clean image (no scale/angle)
@@ -3297,19 +3417,44 @@ const rawMap = config.workflow_map;
       active.set({ angle: originalAngle, scaleX: originalScaleX, scaleY: originalScaleY });
 
       const blob = await (await fetch(dataURL)).blob();
+      if (doSegmentLog) {
+        console.info('[Segment Debug] segment payload', {
+          pointsCount: points.length,
+          labelsCount: labels.length,
+          textPrompt: textPrompt || '',
+          requestImageSize: `${Math.round(width)}x${Math.round(height)}`,
+          hasMaskData,
+          bboxesCount: bboxes.length,
+          bboxesType: Object.prototype.toString.call(bboxes),
+          firstPoint: points[0],
+          lastPoint: points[points.length - 1],
+        });
+      }
       const formData = new FormData();
-    formData.append('file', blob, 'image.png');
-    formData.append('points', JSON.stringify(points));
-    formData.append('labels', JSON.stringify(labels));
+      formData.append('file', blob, 'image.png');
+      formData.append('points', JSON.stringify(points));
+      formData.append('labels', JSON.stringify(labels));
+      if (bboxes.length > 0) {
+        formData.append('bboxes', JSON.stringify(bboxes));
+      }
       if (textPrompt) formData.append('text', textPrompt);
 
       const response = await fetch(`${API_BASE_URL}/segment`, {
         method: 'POST',
         body: formData,
       });
+      if (doSegmentLog) {
+        console.info('[Segment Debug] segment response', {
+          ok: response.ok,
+          status: response.status,
+        });
+      }
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: 'Segmentation failed' }));
+        if (doSegmentLog) {
+          console.error('[Segment Debug] segment failed', errorData);
+        }
         throw new Error(errorData.detail || 'Segmentation failed');
       }
 

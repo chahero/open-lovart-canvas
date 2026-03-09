@@ -954,21 +954,36 @@ async def segment_object(
         pts = json.loads(points) if points else []
         lbls = json.loads(labels) if labels else [1] * len(pts)
         boxes = json.loads(bboxes) if bboxes else []
+        if boxes and isinstance(boxes, list) and len(boxes) == 1 and isinstance(boxes[0], (list, tuple)):
+            boxes = boxes[0]
+        if pts and isinstance(pts, list):
+            pts = [p for p in pts if isinstance(p, (list, tuple)) and len(p) >= 2]
+        if boxes and isinstance(boxes, list) and boxes and isinstance(boxes[0], (list, tuple)):
+            # Keep only bbox-like entries if nested boxes are passed from different clients.
+            boxes = [b for b in boxes if isinstance(b, (list, tuple)) and len(b) >= 4]
+            if len(boxes) == 1:
+                boxes = boxes[0]
 
         print(f"--- SAM 3 Request ---")
-        print(f"Input: Text='{text}', Points={len(pts)}, Boxes={len(boxes)}")
+        print(f"Input: Text='{text}', Points={len(pts)}, Boxes={len(boxes) if hasattr(boxes, '__len__') else 0}")
 
         # Decision Logic
         if text:
             # Concept Segmentation Mode
             print("Mode: Concept Segmentation (SAM3SemanticPredictor)")
+            if boxes:
+                print("Concept source: bboxes")
+            elif pts:
+                print("Concept source: points")
+            else:
+                print("Concept source: text-only")
             sam3_predictor.set_image(img_np)
             query_args = {"text": [text]}
-            if pts:
+            if boxes:
+                query_args["bboxes"] = boxes
+            elif pts:
                 query_args["points"] = pts
                 query_args["labels"] = lbls
-            elif boxes:
-                query_args["bboxes"] = boxes
             results = sam3_predictor(**query_args)
         else:
             # Single Object Mode (SAM 2 Compatibility)
