@@ -3179,15 +3179,6 @@ const rawMap = config.workflow_map;
   const segmentObject = async () => {
     const canvas = fabricCanvas.current;
     let active = canvas.getActiveObject();
-    const doSegmentLog = import.meta?.env?.DEV === true;
-    if (doSegmentLog) {
-      console.info('[Segment Debug] segmentObject called', {
-        activeType: active?.type,
-        activeId: active?.id,
-        activeName: active?.name,
-        activeHasImage: active && (active.type === 'FabricImage' || active.type === 'image'),
-      });
-    }
 
     // If no image is selected, use fallback selection logic
     if (!active || (active.type !== 'FabricImage' && active.type !== 'image')) {
@@ -3197,12 +3188,6 @@ const rawMap = config.workflow_map;
         canvas.setActiveObject(active);
         canvas.renderAll();
         syncUI();
-        if (doSegmentLog) {
-          console.info('[Segment Debug] fallback to only image', {
-            resolvedId: active.id,
-            resolvedName: active.name,
-          });
-        }
       } else if (images.length > 1) {
         showNoticeModal('Segmentation', 'Please select the image you want to segment.');
         return;
@@ -3220,14 +3205,7 @@ const rawMap = config.workflow_map;
   const executeSegment = async (textPrompt) => {
     const canvas = fabricCanvas.current;
     const targetText = (textPrompt || '').trim();
-    const doSegmentLog = import.meta?.env?.DEV === true;
     const hasTextPrompt = Boolean(targetText);
-    if (doSegmentLog) {
-      console.info('[Segment Debug] executeSegment start', {
-        hasTextPrompt,
-        prompt: targetText,
-      });
-    }
     if (!hasTextPrompt) {
       showNoticeModal('Segmentation', 'Enter a text prompt first.');
       return;
@@ -3235,21 +3213,6 @@ const rawMap = config.workflow_map;
 
     const active = segmentTarget; // Use the captured target
     if (!active) return;
-    if (doSegmentLog) {
-      console.info('[Segment Debug] executeSegment target', {
-        id: active.id,
-        name: active.name,
-        width: active.width,
-        height: active.height,
-        left: active.left,
-        top: active.top,
-        scaleX: active.scaleX,
-        scaleY: active.scaleY,
-        angle: active.angle,
-        originX: active.originX,
-        originY: active.originY,
-      });
-    }
 
     setShowSegmentModal(false);
     setIsAiProcessing(true);
@@ -3274,19 +3237,6 @@ const rawMap = config.workflow_map;
       active.set({ angle: originalAngle, scaleX: originalScaleX, scaleY: originalScaleY });
 
       const blob = await (await fetch(dataURL)).blob();
-      if (doSegmentLog) {
-        console.info('[Segment Debug] segment payload', {
-          pointsCount: points.length,
-          labelsCount: labels.length,
-          textPrompt: targetText,
-          requestImageSize: `${Math.round(width)}x${Math.round(height)}`,
-          hasMaskData: false,
-          bboxesCount: 0,
-          bboxesType: 'N/A',
-          firstPoint: points[0],
-          lastPoint: points[points.length - 1],
-        });
-      }
       const formData = new FormData();
       formData.append('file', blob, 'image.png');
       if (targetText) formData.append('text', targetText);
@@ -3295,18 +3245,9 @@ const rawMap = config.workflow_map;
         method: 'POST',
         body: formData,
       });
-      if (doSegmentLog) {
-        console.info('[Segment Debug] segment response', {
-          ok: response.ok,
-          status: response.status,
-        });
-      }
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: 'Segmentation failed' }));
-        if (doSegmentLog) {
-          console.error('[Segment Debug] segment failed', errorData);
-        }
         throw new Error(errorData.detail || 'Segmentation failed');
       }
 
