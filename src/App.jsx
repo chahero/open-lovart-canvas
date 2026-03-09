@@ -610,10 +610,6 @@ const rawMap = config.workflow_map;
       }
       ctx.stroke();
     }
-    if (stats.active) {
-      stats.overlayCount += 1;
-      stats.overlayMsTotal += (performance.now() - startedAt);
-    }
   }, []);
 
   useEffect(() => {
@@ -1721,7 +1717,9 @@ const rawMap = config.workflow_map;
       isSpacePanRef.current = false;
       canvas.off('after:render', drawMaskOverlay);
       hideEraserCursor();
-      canvas.upperCanvasEl.style.cursor = '';
+      if (canvas?.upperCanvasEl?.style) {
+        canvas.upperCanvasEl.style.cursor = '';
+      }
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
@@ -3180,13 +3178,8 @@ const rawMap = config.workflow_map;
 
   const segmentObject = async () => {
     const canvas = fabricCanvas.current;
-    const strokes = maskStrokesRef.current || [];
-    if (strokes.length === 0) {
-      showNoticeModal('Segmentation', 'Use Mask Brush (M) to paint the target area first.');
-      return;
-    }
-
     let active = canvas.getActiveObject();
+    const strokes = maskStrokesRef.current || [];
 
     // If no image is selected, infer target image from brush strokes
     if (!active || (active.type !== 'FabricImage' && active.type !== 'image')) {
@@ -3231,8 +3224,10 @@ const rawMap = config.workflow_map;
   const executeSegment = async (textPrompt) => {
     const canvas = fabricCanvas.current;
     const strokes = maskStrokesRef.current || [];
-    if (strokes.length === 0) {
-      showNoticeModal('Segmentation', 'Mask brush data not found. Paint the image and try again.');
+    const hasMaskData = strokes.length > 0;
+    const hasTextPrompt = Boolean(textPrompt && textPrompt.trim());
+    if (!hasMaskData && !hasTextPrompt) {
+      showNoticeModal('Segmentation', 'Paint a mask with M or enter a text prompt first.');
       return;
     }
 
@@ -3255,40 +3250,44 @@ const rawMap = config.workflow_map;
       const width = Math.max(1, active.width || 1);
       const height = Math.max(1, active.height || 1);
 
-      const flattenedPoints = strokes.flatMap((stroke) => (
-        (stroke.points || []).map((pt) => ({
-          x: pt.x,
-          y: pt.y,
-          size: stroke.size || maskBrushSizeRef.current || 1,
-        }))
-      ));
-      const stride = Math.max(1, Math.ceil(flattenedPoints.length / 180));
-      const sampledPoints = flattenedPoints.filter((_, idx) => idx % stride === 0);
-      const avgBrushScene = sampledPoints.reduce((sum, p) => sum + (p.size || 1), 0) / Math.max(1, sampledPoints.length);
-      const brushPaddingLocal = Math.max(2, avgBrushScene / Math.max(Math.abs(active.scaleX || 1), 0.0001));
+      let points = [];
+      let labels = [];
+      if (hasMaskData) {
+        const flattenedPoints = strokes.flatMap((stroke) => (
+          (stroke.points || []).map((pt) => ({
+            x: pt.x,
+            y: pt.y,
+            size: stroke.size || maskBrushSizeRef.current || 1,
+          }))
+        ));
+        const stride = Math.max(1, Math.ceil(flattenedPoints.length / 180));
+        const sampledPoints = flattenedPoints.filter((_, idx) => idx % stride === 0);
+        const avgBrushScene = sampledPoints.reduce((sum, p) => sum + (p.size || 1), 0) / Math.max(1, sampledPoints.length);
+        const brushPaddingLocal = Math.max(2, avgBrushScene / Math.max(Math.abs(active.scaleX || 1), 0.0001));
 
-      const localPoints = sampledPoints
-        .map((p) => {
-          const scenePoint = new fabric.Point(p.x, p.y);
-          const localPt = fabric.util.transformPoint(scenePoint, invertedMatrix);
-          return {
-            x: localPt.x + offsetX,
-            y: localPt.y + offsetY,
-          };
-        })
-        .filter((p) => p.x >= 0 && p.y >= 0 && p.x <= width && p.y <= height);
+        const localPoints = sampledPoints
+          .map((p) => {
+            const scenePoint = new fabric.Point(p.x, p.y);
+            const localPt = fabric.util.transformPoint(scenePoint, invertedMatrix);
+            return {
+              x: localPt.x + offsetX,
+              y: localPt.y + offsetY,
+            };
+          })
+          .filter((p) => p.x >= 0 && p.y >= 0 && p.x <= width && p.y <= height);
 
-      if (localPoints.length === 0) {
-        throw new Error('Mask does not overlap selected image.');
+        if (localPoints.length === 0) {
+          throw new Error('Mask does not overlap selected image.');
+        }
+
+        const MAX_PROMPT_POINTS = 96;
+        const pointStride = Math.max(1, Math.ceil(localPoints.length / MAX_PROMPT_POINTS));
+        points = localPoints
+          .filter((_, idx) => idx % pointStride === 0)
+          .slice(0, MAX_PROMPT_POINTS)
+          .map((p) => [Math.round(p.x), Math.round(p.y)]);
+        labels = points.map(() => 1);
       }
-
-      const MAX_PROMPT_POINTS = 96;
-      const pointStride = Math.max(1, Math.ceil(localPoints.length / MAX_PROMPT_POINTS));
-      const points = localPoints
-        .filter((_, idx) => idx % pointStride === 0)
-        .slice(0, MAX_PROMPT_POINTS)
-        .map((p) => [Math.round(p.x), Math.round(p.y)]);
-      const labels = points.map(() => 1);
 
       // 3. Export clean image (no scale/angle)
       active.set({ angle: 0, scaleX: 1, scaleY: 1 });
@@ -3299,9 +3298,9 @@ const rawMap = config.workflow_map;
 
       const blob = await (await fetch(dataURL)).blob();
       const formData = new FormData();
-      formData.append('file', blob, 'image.png');
-      formData.append('points', JSON.stringify(points));
-      formData.append('labels', JSON.stringify(labels));
+    formData.append('file', blob, 'image.png');
+    formData.append('points', JSON.stringify(points));
+    formData.append('labels', JSON.stringify(labels));
       if (textPrompt) formData.append('text', textPrompt);
 
       const response = await fetch(`${API_BASE_URL}/segment`, {
@@ -4777,7 +4776,7 @@ const rawMap = config.workflow_map;
             </div>
             <div className="modal-text">
               <h3>Segment Object</h3>
-              <p>Paint a mask with M, then optionally type what you want to extract.</p>
+              <p>Paint a mask with M, or type what you want to extract.</p>
               <div className="modal-input-group">
                 <input
                   type="text"
@@ -4807,7 +4806,7 @@ const rawMap = config.workflow_map;
               <button
                 className="modal-btn confirm segment"
                 onClick={() => executeSegment(segmentText)}
-                disabled={isAiProcessing || (!segmentText && !hasMaskData)}
+                disabled={isAiProcessing || (!segmentText.trim() && !hasMaskData)}
               >
                 {isAiProcessing ? 'Processing...' : 'Segment'}
               </button>
