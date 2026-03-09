@@ -3179,7 +3179,6 @@ const rawMap = config.workflow_map;
   const segmentObject = async () => {
     const canvas = fabricCanvas.current;
     let active = canvas.getActiveObject();
-    const strokes = maskStrokesRef.current || [];
     const doSegmentLog = import.meta?.env?.DEV === true;
     if (doSegmentLog) {
       console.info('[Segment Debug] segmentObject called', {
@@ -3187,40 +3186,13 @@ const rawMap = config.workflow_map;
         activeId: active?.id,
         activeName: active?.name,
         activeHasImage: active && (active.type === 'FabricImage' || active.type === 'image'),
-        maskStrokes: strokes.length,
-        maskTargetId: maskTargetIdRef.current,
       });
     }
 
-    // If no image is selected, infer target image from brush strokes
+    // If no image is selected, use fallback selection logic
     if (!active || (active.type !== 'FabricImage' && active.type !== 'image')) {
       const images = canvas.getObjects().filter(o => o.type === 'FabricImage' || o.type === 'image');
-      let targetImage = null;
-
-      if (maskTargetIdRef.current) {
-        targetImage = images.find((img) => img.id === maskTargetIdRef.current);
-      }
-      if (!targetImage) {
-        const firstStrokePoint = strokes[0]?.points?.[0];
-        if (firstStrokePoint) {
-          const firstPoint = new fabric.Point(firstStrokePoint.x, firstStrokePoint.y);
-          targetImage = images.find((img) => img.containsPoint(firstPoint));
-        }
-      }
-
-      if (targetImage) {
-        active = targetImage;
-        canvas.setActiveObject(active);
-        canvas.renderAll();
-        syncUI();
-        if (doSegmentLog) {
-          console.info('[Segment Debug] auto-resolved image from mask target', {
-            resolvedId: active.id,
-            resolvedName: active.name,
-            maskStrokes: strokes.length,
-          });
-        }
-      } else if (images.length === 1) {
+      if (images.length === 1) {
         active = images[0];
         canvas.setActiveObject(active);
         canvas.renderAll();
@@ -3247,20 +3219,17 @@ const rawMap = config.workflow_map;
 
   const executeSegment = async (textPrompt) => {
     const canvas = fabricCanvas.current;
-    const strokes = maskStrokesRef.current || [];
+    const targetText = (textPrompt || '').trim();
     const doSegmentLog = import.meta?.env?.DEV === true;
-    const hasMaskData = strokes.length > 0;
-    const hasTextPrompt = Boolean(textPrompt && textPrompt.trim());
+    const hasTextPrompt = Boolean(targetText);
     if (doSegmentLog) {
       console.info('[Segment Debug] executeSegment start', {
-        hasMaskData,
         hasTextPrompt,
-        maskStrokes: strokes.length,
-        prompt: textPrompt,
+        prompt: targetText,
       });
     }
-    if (!hasMaskData && !hasTextPrompt) {
-      showNoticeModal('Segmentation', 'Paint a mask with M or enter a text prompt first.');
+    if (!hasTextPrompt) {
+      showNoticeModal('Segmentation', 'Enter a text prompt first.');
       return;
     }
 
@@ -3290,124 +3259,12 @@ const rawMap = config.workflow_map;
       const originalScaleX = active.scaleX;
       const originalScaleY = active.scaleY;
 
-      // 2. Map brush strokes to local prompt points for SAM
+      // 2. Text-based Concept Segmentation only
       const width = Math.max(1, active.width || 1);
       const height = Math.max(1, active.height || 1);
 
-      let points = [];
-      let labels = [];
-      let bboxes = [];
-      if (hasMaskData) {
-        const flattenedPoints = strokes.flatMap((stroke) => (
-          (stroke.points || []).map((pt) => ({
-            x: pt.x,
-            y: pt.y,
-            size: stroke.size || maskBrushSizeRef.current || 1,
-          }))
-        ));
-        const hasLocalPointHelper = typeof active.toLocalPoint === 'function';
-        const hasMatrixUtil = Boolean(
-          fabric?.util &&
-          typeof fabric.util.invertTransform === 'function' &&
-          typeof fabric.util.transformPoint === 'function' &&
-          typeof active.calcTransformMatrix === 'function'
-        );
-        const stride = Math.max(1, Math.ceil(flattenedPoints.length / 180));
-        const sampledPoints = flattenedPoints.filter((_, idx) => idx % stride === 0);
-        const avgBrushScene = sampledPoints.reduce((sum, p) => sum + (p.size || 1), 0) / Math.max(1, sampledPoints.length);
-        const brushPaddingLocal = Math.max(2, avgBrushScene / Math.max(Math.abs(active.scaleX || 1), 0.0001));
-
-        const localPoints = sampledPoints
-          .map((p) => {
-            let localPt = null;
-            let conversionMode = 'fallback';
-            if (hasLocalPointHelper) {
-              localPt = active.toLocalPoint(new fabric.Point(p.x, p.y), 'left', 'top');
-              conversionMode = 'toLocalPoint';
-            } else if (hasMatrixUtil) {
-              const inv = fabric.util.invertTransform(active.calcTransformMatrix());
-              localPt = fabric.util.transformPoint(new fabric.Point(p.x, p.y), inv);
-              conversionMode = 'matrixInverse';
-            }
-            if (!localPt) {
-              const fallbackOriginX = active.left || 0;
-              const fallbackOriginY = active.top || 0;
-              const fallbackScaleX = Math.abs(active.scaleX || 1) < 0.0001 ? 1 : active.scaleX || 1;
-              const fallbackScaleY = Math.abs(active.scaleY || 1) < 0.0001 ? 1 : active.scaleY || 1;
-              localPt = new fabric.Point(
-                (p.x - fallbackOriginX) / fallbackScaleX,
-                (p.y - fallbackOriginY) / fallbackScaleY
-              );
-            }
-            return {
-              x: localPt.x,
-              y: localPt.y,
-              conversionMode,
-            };
-          })
-          .filter((p) => p.x >= 0 && p.y >= 0 && p.x <= width && p.y <= height);
-
-        if (localPoints.length === 0) {
-          if (doSegmentLog) {
-            console.warn('[Segment Debug] mask transform produced no overlapping points', {
-              hasTextPrompt,
-              strokeCount: strokes.length,
-            });
-          }
-        }
-
-          if (doSegmentLog) {
-            console.info('[Segment Debug] mask transform', {
-              rawStrokePoints: strokes.reduce((sum, stroke) => sum + (stroke.points?.length || 0), 0),
-              sampledPoints: sampledPoints.length,
-              localPoints: localPoints.length,
-              width,
-              height,
-              conversionMode: localPoints[0]?.conversionMode || (hasLocalPointHelper ? 'toLocalPoint' : hasMatrixUtil ? 'matrixInverse' : 'fallback'),
-              brushPaddingLocal,
-              firstLocalPoint: localPoints[0],
-              lastLocalPoint: localPoints[localPoints.length - 1],
-            });
-          }
-
-        if (localPoints.length > 0) {
-          const MAX_PROMPT_POINTS = 96;
-          const pointStride = Math.max(1, Math.ceil(localPoints.length / MAX_PROMPT_POINTS));
-          points = localPoints
-            .filter((_, idx) => idx % pointStride === 0)
-            .slice(0, MAX_PROMPT_POINTS)
-            .map((p) => [Math.round(p.x), Math.round(p.y)]);
-          labels = points.map(() => 1);
-        }
-      }
-      if (points.length === 0 && hasTextPrompt) {
-        if (hasMaskData) {
-          const centerPoint = [Math.round(width / 2), Math.round(height / 2)];
-          points = [centerPoint];
-          labels = [1];
-          if (doSegmentLog) {
-            console.info('[Segment Debug] fallback to center point prompt point', { centerPoint, hasTextPrompt, hasMaskData });
-          }
-        } else {
-          bboxes = [0, 0, Math.max(1, Math.round(width) - 1), Math.max(1, Math.round(height) - 1)];
-          if (doSegmentLog) {
-            console.info('[Segment Debug] fallback to full-image bbox for text-only prompt', {
-              fullBbox: bboxes,
-            });
-          }
-        }
-      }
-      if (hasTextPrompt && !hasMaskData) {
-        if (doSegmentLog && (points.length > 0 || labels.length > 0)) {
-          console.warn('[Segment Debug] forcing text-only mode by clearing unexpected prompt points', {
-            pointsCount: points.length,
-            labelsCount: labels.length,
-            bboxesCount: bboxes.length,
-          });
-        }
-        points = [];
-        labels = [];
-      }
+      const points = [];
+      const labels = [];
 
       // 3. Export clean image (no scale/angle)
       active.set({ angle: 0, scaleX: 1, scaleY: 1 });
@@ -3421,23 +3278,18 @@ const rawMap = config.workflow_map;
         console.info('[Segment Debug] segment payload', {
           pointsCount: points.length,
           labelsCount: labels.length,
-          textPrompt: textPrompt || '',
+          textPrompt: targetText,
           requestImageSize: `${Math.round(width)}x${Math.round(height)}`,
-          hasMaskData,
-          bboxesCount: bboxes.length,
-          bboxesType: Object.prototype.toString.call(bboxes),
+          hasMaskData: false,
+          bboxesCount: 0,
+          bboxesType: 'N/A',
           firstPoint: points[0],
           lastPoint: points[points.length - 1],
         });
       }
       const formData = new FormData();
       formData.append('file', blob, 'image.png');
-      formData.append('points', JSON.stringify(points));
-      formData.append('labels', JSON.stringify(labels));
-      if (bboxes.length > 0) {
-        formData.append('bboxes', JSON.stringify(bboxes));
-      }
-      if (textPrompt) formData.append('text', textPrompt);
+      if (targetText) formData.append('text', targetText);
 
       const response = await fetch(`${API_BASE_URL}/segment`, {
         method: 'POST',
@@ -4919,27 +4771,21 @@ const rawMap = config.workflow_map;
             <div className="modal-icon-circle segment">
               <Scissors size={28} />
             </div>
-            <div className="modal-text">
-              <h3>Segment Object</h3>
-              <p>Paint a mask with M, or type what you want to extract.</p>
-              <div className="modal-input-group">
-                <input
-                  type="text"
-                  placeholder="e.g. person, statue, cat..."
-                  className="modal-input"
-                  value={segmentText}
-                  onChange={(e) => setSegmentText(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && executeSegment(segmentText)}
-                  autoFocus
-                />
-                {hasMaskData && (
-                  <p className="mark-status">
-                    <Target size={12} style={{ marginRight: 4 }} />
-                    Brush mask ({maskPointCount} samples) will be used
-                  </p>
-                )}
+              <div className="modal-text">
+                <h3>Segment Object</h3>
+                <p>Type what you want to extract.</p>
+                <div className="modal-input-group">
+                  <input
+                    type="text"
+                    placeholder="e.g. person, statue, cat..."
+                    className="modal-input"
+                    value={segmentText}
+                    onChange={(e) => setSegmentText(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && executeSegment(segmentText)}
+                    autoFocus
+                  />
+                </div>
               </div>
-            </div>
             <div className="modal-actions">
               <button
                 className="modal-btn cancel"
@@ -4951,7 +4797,7 @@ const rawMap = config.workflow_map;
               <button
                 className="modal-btn confirm segment"
                 onClick={() => executeSegment(segmentText)}
-                disabled={isAiProcessing || (!segmentText.trim() && !hasMaskData)}
+                disabled={isAiProcessing || !segmentText.trim()}
               >
                 {isAiProcessing ? 'Processing...' : 'Segment'}
               </button>

@@ -1009,7 +1009,40 @@ async def segment_object(
              raise HTTPException(status_code=400, detail="AI could not identify any object. Please try different prompts.")
 
         # Get the best mask
-        mask = results[0].masks.data[0].cpu().numpy()
+        is_text_mode = bool(text)
+        raw_mask_data = results[0].masks.data
+        mask_np = raw_mask_data.cpu().numpy()
+
+        if isinstance(mask_np, np.ndarray) and mask_np.ndim == 4:
+            if mask_np.shape[1] == 1:
+                mask_np = mask_np[:, 0, :, :]
+            elif mask_np.shape[0] == 1:
+                mask_np = mask_np[0]
+
+        if not isinstance(mask_np, np.ndarray):
+            raise HTTPException(status_code=500, detail="Invalid mask type from SAM 3.")
+
+        if is_text_mode and mask_np.ndim == 3 and mask_np.shape[0] > 1:
+            scores = None
+            if hasattr(results[0], "boxes") and results[0].boxes is not None:
+                confs = results[0].boxes.conf
+                if confs is not None:
+                    scores = confs.cpu().numpy() if hasattr(confs, "cpu") else np.array(confs)
+            areas = np.asarray(mask_np.reshape(mask_np.shape[0], -1).sum(axis=1), dtype=np.float32)
+            if scores is not None and len(scores) == mask_np.shape[0]:
+                conf_norm = scores / (np.max(scores) if np.max(scores) > 0 else 1.0)
+                area_norm = areas / (np.max(areas) if np.max(areas) > 0 else 1.0)
+                rank = 0.7 * conf_norm + 0.3 * area_norm
+                best_idx = int(np.argmax(rank))
+                print(f"Text mode selected mask idx={best_idx} (conf={scores[best_idx]:.4f}, area={areas[best_idx]:.1f}, score={rank[best_idx]:.4f})")
+            else:
+                best_idx = int(np.argmax(areas))
+                print(f"Text mode selected mask idx={best_idx} by area (area={areas[best_idx]:.1f})")
+            mask = mask_np[best_idx]
+        elif mask_np.ndim == 3:
+            mask = mask_np[0]
+        else:
+            mask = mask_np
         
         # Resize mask to original image size
         mh, mw = mask.shape
